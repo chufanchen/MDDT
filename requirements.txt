@@ -1,7 +1,8 @@
 gym==0.21.0
 hydra-core
 matplotlib==3.5.1
-mujoco_py==2.0.2.13
+mujoco_py
+mujoco==2.3.5
 numpy==1.22.3
 omegaconf
 pandas==1.4.2
