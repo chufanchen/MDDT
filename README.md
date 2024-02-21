@@ -1,34 +1,13 @@
-# Learning to Modulate pre-trained Models in RL
-[![arXiv](https://img.shields.io/badge/arXiv-2306.14884-b31b1b.svg)](https://arxiv.org/abs/2306.14884)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-Thomas Schmied<sup>**1**</sup>, Markus Hofmarcher<sup>**2**</sup>, Fabian Paischer<sup>**1**</sup>, Razvan Pacscanu<sup>**3,4**</sup>, Sepp Hochreiter<sup>**1,5**</sup> 
-
-<sup>**1**</sup>ELLIS Unit Linz and LIT AI Lab, Institute for Machine Learning, Johannes Kepler University Linz, Austria\
-<sup>**2**</sup>JKU LIT SAL eSPML Lab, Institute for Machine Learning, Johannes Kepler University Linz, Austria\
-<sup>**3**</sup>Google DeepMind\
-<sup>**4**</sup>UCL\
-<sup>**5**</sup>Institute of Advanced Research in Artificial Intelligence (IARAI), Vienna, Austria
-
-This repository contains the source code for **"Learning to Modulate pre-trained Models in RL"** accepted at NeurIPS 2023.
-The paper is available [here](https://arxiv.org/abs/2306.14884). 
-
-![Multi-domain Decision Transformer (MDDT)](./figures/mddt.png) 
+# CRL
 
 ## Overview
+
 This codebase supports training [Decision Transformer (DT)](https://arxiv.org/abs/2106.01345) models online or from offline datasets on the following domains: 
 - [Meta-World](https://github.com/Farama-Foundation/Metaworld) / [Continual-World](https://github.com/awarelab/continual_world)
 - [Atari](https://github.com/openai/gym)
 - [Gym-MuJoCo](https://github.com/openai/gym)
 - [ProcGen](https://github.com/openai/procgen)
 - [DMControl](https://github.com/deepmind/dm_control)
-
-This codebase relies on open-source frameworks, including: 
-- [PyTorch](https://github.com/pytorch/pytorch)
-- [Huggingface transformers](https://github.com/huggingface/transformers)
-- [stable-baselines3](https://github.com/DLR-RM/stable-baselines3)
-- [wandb](https://github.com/wandb/wandb)
-- [Hydra](https://github.com/facebookresearch/hydra)
 
 What is in this repository?
 ```
@@ -63,6 +42,7 @@ What is in this repository?
 ├── requirements.txt
 └── main.py                     # Main entry point for training/evaluating agents.
 ```
+
 ## Installation
 Environment configuration and dependencies are available in `environment.yaml` and `requirements.txt`.
 
@@ -102,18 +82,22 @@ pip install -e .
 ```
 
 ### MuJoCo installation
+
 Download MuJoCo:
 ```
 mkdir ~/.mujoco
 cd ~/.mujoco
 wget https://www.roboti.us/download/mujoco200_linux.zip
+wget https://mujoco.org/download/mujoco210-linux-x86_64.tar.gz
 unzip mujoco200_linux.zip
+tar -xzf mujoco210-linux-x86_64.tar.gz
 mv mujoco200_linux mujoco200
+mv mujoco210-linux-x86_64 mujoco210
 wget https://www.roboti.us/file/mjkey.txt
 ```
 Then add the following line to `.bashrc`:
 ```
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco200/bin
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco200/bin:~/.mujoco/mujoco210/bin:/usr/lib/nvidia
 ```
 
 #### Troubleshooting on cluster (without root access)
@@ -146,6 +130,18 @@ Finally, export the path to `rpm` dir (add to `~/.bashrc`):
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/rpm/usr/lib64
 export LDFLAGS="-L/~/rpm/usr/lib64"
 ```
+
+# HiDe-CLoRA
+
+
+
+# Learning to Modulate pre-trained Models in RL
+
+[![arXiv](https://img.shields.io/badge/arXiv-2306.14884-b31b1b.svg)](https://arxiv.org/abs/2306.14884)
+
+![Multi-domain Decision Transformer (MDDT)](./figures/mddt.png) 
+
+![L2M](./figures/L2M_algo.png) 
 
 ## Setup
 
@@ -231,15 +227,3 @@ Example scripts for multi-gpu training on Slurm or PBS are available in `scripts
 ### Multi-node training
 Running on Slurm/PBS in a multi-node setup requires a little more care. Example scripts are provided in `scripts`.
 
-## Citation
-If you find this useful, please consider citing our work: 
-```
-@inproceedings{
-      schmied2023learning,
-      title={Learning to Modulate pre-trained Models in {RL}},
-      author={Thomas Schmied and Markus Hofmarcher and Fabian Paischer and Razvan Pascanu and Sepp Hochreiter},
-      booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
-      year={2023},
-      url={https://openreview.net/forum?id=aIpGtPwXny}
-}
-```
