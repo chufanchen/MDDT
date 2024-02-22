@@ -108,7 +108,7 @@ wget https://www.roboti.us/file/mjkey.txt
 Then add the following line to `.bashrc`:
 
 ```bash
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco200/bin:~/.mujoco/mujoco210/bin:/usr/lib/nvidia
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco200/bin:~/.mujoco/mujoco210/bin:/usr/lib/nvidia:$CONDA_PREFIX/lib
 ```
 
 #### Troubleshooting on cluster (without root access)
@@ -129,17 +129,22 @@ pip install patchelf
 
 Create the symlink manually:
 
-- https://github.com/openai/mujoco-py/issues/763#issuecomment-1519090452 
+- https://github.com/openai/mujoco-py/issues/763#issuecomment-1519090452
 
 ```bash
 cp /usr/lib64/libGL.so.1 $CONDA_PREFIX/lib
 ln -s $CONDA_PREFIX/lib/libGL.so.1 $CONDA_PREFIX/lib/libGL.so
 ```
 
+## Pre-train
+
+### Supervised pre-training
+
+### Self-supervised pre-training
+
 ## HiDeLoRA
 
 ![HiDeLoRA](./figures/HiDeLoRA.png)
-
 
 ## Learning to Modulate pre-trained Models in RL
 
@@ -147,7 +152,7 @@ ln -s $CONDA_PREFIX/lib/libGL.so.1 $CONDA_PREFIX/lib/libGL.so
 
 ![Multi-domain Decision Transformer (MDDT)](./figures/mddt.png) 
 
-![L2M](./figures/L2M_algo.png) 
+![L2M](./figures/L2M_algo.png)
 
 ## Setup
 
