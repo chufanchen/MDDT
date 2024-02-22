@@ -1,4 +1,4 @@
-# CRL
+# Continual Reinforcement Learning with Decision Transformer
 
 ## Overview
 
@@ -45,16 +45,19 @@ What is in this repository?
 ```
 
 ## Installation
+
 Environment configuration and dependencies are available in `environment.yaml` and `requirements.txt`.
 
 First, create the conda environment.
-```
+
+```bash
 conda env create -f environment.yaml
 conda activate mddt
 ```
 
 Then install the remaining requirements (with MuJoCo already downloaded, if not see [here](#MuJoCo-installation)):
-```
+
+```bash
 pip install -r requirements.txt
 ```
 
@@ -65,7 +68,7 @@ pip install torch==1.11.0+cu113 torchvision==0.12.0+cu113 torchaudio==0.11.0 --e
 
 Init the `continualworld` submodule and install:
 
-```
+```bash
 git submodule init
 git submodule update
 cd continualworld
@@ -74,7 +77,7 @@ pip install .
 
 Install `meta-world`:
 
-```
+```bash
 pip install git+https://github.com/rlworkgroup/metaworld.git@18118a28c06893da0f363786696cc792457b062b
 ```
 
@@ -90,7 +93,7 @@ pip install -e .
 
 Download MuJoCo:
 
-```
+```bash
 mkdir ~/.mujoco
 cd ~/.mujoco
 wget https://www.roboti.us/download/mujoco200_linux.zip
@@ -104,7 +107,7 @@ wget https://www.roboti.us/file/mjkey.txt
 
 Then add the following line to `.bashrc`:
 
-```
+```bash
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:~/.mujoco/mujoco200/bin:~/.mujoco/mujoco210/bin:/usr/lib/nvidia
 ```
 
@@ -133,11 +136,12 @@ cp /usr/lib64/libGL.so.1 $CONDA_PREFIX/lib
 ln -s $CONDA_PREFIX/lib/libGL.so.1 $CONDA_PREFIX/lib/libGL.so
 ```
 
-# HiDe-CLoRA
+## HiDeLoRA
+
+![HiDeLoRA](./figures/HiDeLoRA.png)
 
 
-
-# Learning to Modulate pre-trained Models in RL
+## Learning to Modulate pre-trained Models in RL
 
 [![arXiv](https://img.shields.io/badge/arXiv-2306.14884-b31b1b.svg)](https://arxiv.org/abs/2306.14884)
 
@@ -162,7 +166,8 @@ MODELS_DIR: ../models
 ```
 
 ### Datasets
-The genereated datasets are currently hosted via our web-server. Download Meta-World and DMControl datasets to the specified `DATA_DIR`:
+
+The generated datasets are currently hosted via our web-server. Download Meta-World and DMControl datasets to the specified `DATA_DIR`:
 
 ```bash
 # Meta-World
@@ -247,4 +252,3 @@ Example scripts for multi-gpu training on Slurm or PBS are available in `scripts
 ### Multi-node training
 
 Running on Slurm/PBS in a multi-node setup requires a little more care. Example scripts are provided in `scripts`.
-
