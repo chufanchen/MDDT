@@ -132,20 +132,15 @@ class HiDeLoRAPool(Prompt):
             if not isinstance(getattr(self, param_name), nn.Parameter):
                 setattr(self, param_name, getattr(self, param_name).to(device))
 
-    def forward(
-        self,
-        x_embed,
-        task_id=None,
-        depth_id=None,
-        train=False,
-    ):
+    def forward(self, x_embed, task_id=None, train=False, **kwargs):
         out = dict()
         self.to_device(x_embed.device)
         if train:
             assert isinstance(task_id, int)
-            q = self.q_lora_A[task_id][depth_id] @ self.q_lora_B[task_id][depth_id]
-            k = self.k_lora_A[task_id][depth_id] @ self.k_lora_B[task_id][depth_id]
-            v = self.v_lora_A[task_id][depth_id] @ self.v_lora_B[task_id][depth_id]
+            # TODO: check if this is correct, use bmm?
+            q = self.q_lora_A[task_id] @ self.q_lora_B[task_id]
+            k = self.k_lora_A[task_id] @ self.k_lora_B[task_id]
+            v = self.v_lora_A[task_id] @ self.v_lora_B[task_id]
             w = (
                 torch.cat(
                     [q.to(x_embed.device), k.to(x_embed.device), v.to(x_embed.device)],
@@ -153,20 +148,14 @@ class HiDeLoRAPool(Prompt):
                 )
                 * self.scaling
             )
-            out["lora_value"] = torch.einsum("bld,dz->blz", x_embed, w)
+            out["prompt"] = torch.einsum("bld,dz->blz", x_embed, w)
             return out
 
         else:
             assert isinstance(task_id, list) or isinstance(task_id, torch.Tensor)
-            q = torch.bmm(
-                self.q_lora_A[task_id, depth_id], self.q_lora_B[task_id, depth_id]
-            )
-            k = torch.bmm(
-                self.k_lora_A[task_id, depth_id], self.k_lora_B[task_id, depth_id]
-            )
-            v = torch.bmm(
-                self.v_lora_A[task_id, depth_id], self.v_lora_B[task_id, depth_id]
-            )
+            q = torch.bmm(self.q_lora_A[task_id], self.q_lora_B[task_id])
+            k = torch.bmm(self.k_lora_A[task_id], self.k_lora_B[task_id])
+            v = torch.bmm(self.v_lora_A[task_id], self.v_lora_B[task_id])
             w = (
                 torch.cat(
                     [q.to(x_embed.device), k.to(x_embed.device), v.to(x_embed.device)],
@@ -174,7 +163,7 @@ class HiDeLoRAPool(Prompt):
                 )
                 * self.scaling
             )
-            out["lora_value"] = torch.bmm(x_embed, w)  # B x L x 3dim
+            out["prompt"] = torch.bmm(x_embed, w)  # B x L x 3dim
         return out
 
     def add_dropout(self, batched_prompt):
