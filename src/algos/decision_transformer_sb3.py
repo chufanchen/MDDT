@@ -298,7 +298,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self._setup_prompt_buffer()
 
     def _setup_prompt_buffer(self):
-        # i.e., ensures that if prompt_buffer_kwargs are passed and cotain same args as in replay_buffer_kwargs
+        # i.e., ensures that if prompt_buffer_kwargs are passed and contain same args as in replay_buffer_kwargs
         # then the prompt buffer kwargs are used.
         buffer_kwargs = {**self.replay_buffer_kwargs}
         buffer_kwargs.update(self.prompt_buffer_kwargs)
