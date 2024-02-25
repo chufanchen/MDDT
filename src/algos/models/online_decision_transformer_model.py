@@ -882,6 +882,7 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
             prompt_inputs,
             attention_mask=stacked_attention_mask,
             task_id=task_id,
+            train=True,  # TODO:Use variable here
             tok_to_pos=self.tok_to_pos,
         )
         if prompt_output is None:
@@ -889,7 +890,7 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
         prompt_stacked_inputs, prompt_infos = (
             prompt_output["prompt"],
             prompt_output["infos"],
-        )
+        )  # if hide_lora: return n_layer's A B [n_layer, hidden_dim, hidden_dim]
 
         # make attn mask
         # prompt stacked inputs can be None, in case we do pre-training of keys and don't want to have prompt
