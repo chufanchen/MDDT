@@ -4,12 +4,16 @@ from typing import Optional, Tuple, Union
 from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions
 from transformers.utils import logging
 from transformers.models.decision_transformer import DecisionTransformerGPT2Model
-from transformers.models.decision_transformer.modeling_decision_transformer import DecisionTransformerGPT2Block,\
-    DecisionTransformerGPT2Attention, DecisionTransformerGPT2MLP
+from transformers.models.decision_transformer.modeling_decision_transformer import (
+    DecisionTransformerGPT2Block,
+    DecisionTransformerGPT2Attention,
+    DecisionTransformerGPT2MLP,
+)
 from .online_decision_transformer_model import OnlineDecisionTransformerModel
 from .multi_domain_discrete_dt_model import MultiDomainDiscreteDTModel
 from .discrete_decision_transformer_model import DiscreteDTModel
 from .adapter import Adapter
+from ..prompt.hide_lora import hide_lora_pool
 
 
 logger = logging.get_logger(__name__)
@@ -18,13 +22,23 @@ logger = logging.get_logger(__name__)
 class AttentionIA3(DecisionTransformerGPT2Attention):
     """
     Wrapper class for DecisionTransformerGPT2Attention.
-    Add functionality to pass IA3 vectors and scale keys and values by them.
+    Add functionality to pass LoRA or IA3 vectors and scale keys and values by them.
     Unfortunately, requires to overwrite the entire forward().
 
     """
 
-    def __init__(self, config, is_cross_attention=False, layer_idx=None, ia3=False, lora=False, lora_dropout=0):
-        super().__init__(config=config, is_cross_attention=is_cross_attention, layer_idx=layer_idx)
+    def __init__(
+        self,
+        config,
+        is_cross_attention=False,
+        layer_idx=None,
+        ia3=False,
+        lora=False,
+        lora_dropout=0,
+    ):
+        super().__init__(
+            config=config, is_cross_attention=is_cross_attention, layer_idx=layer_idx
+        )
         self.ia3 = ia3
         self.lora = lora
         self.lora_dropout = lora_dropout
@@ -41,7 +55,7 @@ class AttentionIA3(DecisionTransformerGPT2Attention):
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         use_cache: Optional[bool] = False,
         output_attentions: Optional[bool] = False,
-        modulators=None
+        modulators=None,
     ) -> Tuple[Union[torch.Tensor, Tuple[torch.Tensor]], ...]:
         if encoder_hidden_states is not None:
             if not hasattr(self, "q_attn"):
@@ -51,7 +65,9 @@ class AttentionIA3(DecisionTransformerGPT2Attention):
                 )
 
             query = self.q_attn(hidden_states)
-            key, value = self.c_attn(encoder_hidden_states).split(self.split_size, dim=2)
+            key, value = self.c_attn(encoder_hidden_states).split(
+                self.split_size, dim=2
+            )
             attention_mask = encoder_attention_mask
         else:
             query, key, value = self.c_attn(hidden_states).split(self.split_size, dim=2)
@@ -61,31 +77,47 @@ class AttentionIA3(DecisionTransformerGPT2Attention):
                 value = value * modulators[0]
             if modulators[1] is not None:
                 key = key * modulators[1]
-            if len(modulators) == 5 and modulators[3] is not None and not isinstance(modulators[3], Adapter):
+            if (
+                len(modulators) == 5
+                and modulators[3] is not None
+                and not isinstance(modulators[3], Adapter)
+            ):
                 query = query * modulators[3]
-        if self.lora and modulators is not None: 
+        if self.lora and modulators is not None:
             scaling = modulators[-1]
             if self.lora_dropout > 0:
                 hidden_states = self.lora_dropout_layer(hidden_states)
             if modulators[0] is not None:
                 lora_a_q, lora_b_q = modulators[0]
-                lora_a_q = lora_a_q.transpose(0, 1) if len(lora_a_q.shape) == 2 else lora_a_q
-                lora_b_q = lora_b_q.transpose(0, 1) if len(lora_b_q.shape) == 2 else lora_b_q
+                lora_a_q = (
+                    lora_a_q.transpose(0, 1) if len(lora_a_q.shape) == 2 else lora_a_q
+                )
+                lora_b_q = (
+                    lora_b_q.transpose(0, 1) if len(lora_b_q.shape) == 2 else lora_b_q
+                )
                 lora_out_q = (hidden_states @ lora_a_q @ lora_b_q) * scaling
                 query = query + lora_out_q
             if modulators[1] is not None:
                 lora_a_v, lora_b_v = modulators[1]
-                lora_a_v = lora_a_v.transpose(0, 1) if len(lora_a_v.shape) == 2 else lora_a_v
-                lora_b_v = lora_b_v.transpose(0, 1) if len(lora_b_v.shape) == 2 else lora_b_v
+                lora_a_v = (
+                    lora_a_v.transpose(0, 1) if len(lora_a_v.shape) == 2 else lora_a_v
+                )
+                lora_b_v = (
+                    lora_b_v.transpose(0, 1) if len(lora_b_v.shape) == 2 else lora_b_v
+                )
                 lora_out_v = (hidden_states @ lora_a_v @ lora_b_v) * scaling
                 value = value + lora_out_v
-            if modulators[2] is not None: 
+            if modulators[2] is not None:
                 lora_a_k, lora_b_k = modulators[2]
-                lora_a_k = lora_a_k.transpose(0, 1) if len(lora_a_k.shape) == 2 else lora_a_k
-                lora_b_k = lora_b_k.transpose(0, 1) if len(lora_b_k.shape) == 2 else lora_b_k
+                lora_a_k = (
+                    lora_a_k.transpose(0, 1) if len(lora_a_k.shape) == 2 else lora_a_k
+                )
+                lora_b_k = (
+                    lora_b_k.transpose(0, 1) if len(lora_b_k.shape) == 2 else lora_b_k
+                )
                 lora_out_k = (hidden_states @ lora_a_k @ lora_b_k) * scaling
-                key = key + lora_out_k  
-                
+                key = key + lora_out_k
+
         query = self._split_heads(query, self.num_heads, self.head_dim)
         key = self._split_heads(key, self.num_heads, self.head_dim)
         value = self._split_heads(value, self.num_heads, self.head_dim)
@@ -101,9 +133,13 @@ class AttentionIA3(DecisionTransformerGPT2Attention):
             present = None
 
         if self.reorder_and_upcast_attn:
-            attn_output, attn_weights = self._upcast_and_reordered_attn(query, key, value, attention_mask, head_mask)
+            attn_output, attn_weights = self._upcast_and_reordered_attn(
+                query, key, value, attention_mask, head_mask
+            )
         else:
-            attn_output, attn_weights = self._attn(query, key, value, attention_mask, head_mask)
+            attn_output, attn_weights = self._attn(
+                query, key, value, attention_mask, head_mask
+            )
 
         attn_output = self._merge_heads(attn_output, self.num_heads, self.head_dim)
         attn_output = self.c_proj(attn_output)
@@ -119,12 +155,20 @@ class AttentionIA3(DecisionTransformerGPT2Attention):
 class MLPIA3(DecisionTransformerGPT2MLP):
     """
     Wrapper class for DecisionTransformerGPT2MLP.
-    Add functionality to pass IA3 vectors and scale the ff output.
+    Add functionality to pass IA3 or LoRA vectors and scale the ff output.
     Unfortunately, requires to overwrite the entire forward().
 
     """
 
-    def __init__(self, intermediate_size, config, ia3=False, lora=False, ia3_lff_pre=False, lora_dropout=0):
+    def __init__(
+        self,
+        intermediate_size,
+        config,
+        ia3=False,
+        lora=False,
+        ia3_lff_pre=False,
+        lora_dropout=0,
+    ):
         super().__init__(intermediate_size=intermediate_size, config=config)
         self.ia3 = ia3
         self.lora = lora
@@ -133,7 +177,18 @@ class MLPIA3(DecisionTransformerGPT2MLP):
         if lora_dropout > 0:
             self.lora_dropout_layer = nn.Dropout(lora_dropout)
 
-    def forward(self, hidden_states: Optional[Tuple[torch.FloatTensor]], modulators=None) -> torch.FloatTensor:
+    def forward(
+        self, hidden_states: Optional[Tuple[torch.FloatTensor]], modulators=None
+    ) -> torch.FloatTensor:
+        """
+
+        Args:
+            hidden_states (Optional[Tuple[torch.FloatTensor]]): MLP layer input
+            modulators (Union[List, Tuple]): . Defaults to None.
+
+        Returns:
+            torch.FloatTensor: _description_
+        """
         hidden_states = self.c_fc(hidden_states)
         # pre-activation IA3
         if self.ia3_lff_pre and self.ia3 and modulators is not None:
@@ -143,14 +198,14 @@ class MLPIA3(DecisionTransformerGPT2MLP):
             hidden_states_lora = hidden_states
             if self.lora_dropout > 0:
                 hidden_states_lora = self.lora_dropout_layer(hidden_states_lora)
-            if modulators[3] is not None: 
+            if modulators[3] is not None:
                 scaling = modulators[-1]
                 lora_a, lora_b = modulators[3]
                 lora_a = lora_a.transpose(0, 1) if len(lora_a.shape) == 2 else lora_a
                 lora_b = lora_b.transpose(0, 1) if len(lora_b.shape) == 2 else lora_b
                 lora_out = (hidden_states_lora @ lora_a @ lora_b) * scaling
-                hidden_states = hidden_states + lora_out        
-        
+                hidden_states = hidden_states + lora_out
+
         hidden_states = self.act(hidden_states)
         # post-activation IA3
         if not self.ia3_lff_pre and self.ia3 and modulators is not None:
@@ -158,8 +213,13 @@ class MLPIA3(DecisionTransformerGPT2MLP):
                 hidden_states = hidden_states * modulators[2]
         hidden_states = self.c_proj(hidden_states)
         hidden_states = self.dropout(hidden_states)
-        if self.ia3 and modulators is not None and len(modulators) == 5 and modulators[4] is not None \
-            and not isinstance(modulators[4], Adapter):
+        if (
+            self.ia3
+            and modulators is not None
+            and len(modulators) == 5
+            and modulators[4] is not None
+            and not isinstance(modulators[4], Adapter)
+        ):
             hidden_states = hidden_states * modulators[4]
         return hidden_states
 
@@ -170,17 +230,38 @@ class DecisionTransformerGPT2BlockWithIA3(DecisionTransformerGPT2Block):
     Add functionality to pass IA3 vectors to the Attention and MLP layers.
 
     """
-    def __init__(self, config, layer_idx=None, ia3=False, lora=False, ia3_lff_pre=False, lora_dropout=0):
+
+    def __init__(
+        self,
+        config,
+        layer_idx=None,
+        ia3=False,
+        lora=False,
+        ia3_lff_pre=False,
+        lora_dropout=0,
+    ):
         super().__init__(config=config, layer_idx=layer_idx)
         self.ia3 = ia3
         self.lora = lora
         self.ia3_lff_pre = ia3_lff_pre
         del self.attn, self.mlp
-        self.attn = AttentionIA3(config=config, layer_idx=layer_idx, ia3=ia3, lora=lora, lora_dropout=lora_dropout)
+        self.attn = AttentionIA3(
+            config=config,
+            layer_idx=layer_idx,
+            ia3=ia3,
+            lora=lora,
+            lora_dropout=lora_dropout,
+        )
         hidden_size = config.hidden_size
         inner_dim = config.n_inner if config.n_inner is not None else 4 * hidden_size
-        self.mlp = MLPIA3(inner_dim, config, ia3=ia3, ia3_lff_pre=self.ia3_lff_pre, 
-                          lora=lora, lora_dropout=lora_dropout)
+        self.mlp = MLPIA3(
+            inner_dim,
+            config,
+            ia3=ia3,
+            ia3_lff_pre=self.ia3_lff_pre,
+            lora=lora,
+            lora_dropout=lora_dropout,
+        )
 
     def forward(
         self,
@@ -192,8 +273,11 @@ class DecisionTransformerGPT2BlockWithIA3(DecisionTransformerGPT2Block):
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         use_cache: Optional[bool] = False,
         output_attentions: Optional[bool] = False,
-        modulators=None
-    ) -> Union[Tuple[torch.Tensor], Optional[Tuple[torch.Tensor, Tuple[torch.FloatTensor, ...]]]]:
+        modulators=None,
+    ) -> Union[
+        Tuple[torch.Tensor],
+        Optional[Tuple[torch.Tensor, Tuple[torch.FloatTensor, ...]]],
+    ]:
         residual = hidden_states
         hidden_states = self.ln_1(hidden_states)
         attn_outputs = self.attn(
@@ -203,11 +287,11 @@ class DecisionTransformerGPT2BlockWithIA3(DecisionTransformerGPT2Block):
             head_mask=head_mask,
             use_cache=use_cache,
             output_attentions=output_attentions,
-            modulators=modulators if self.ia3 or self.lora else None
+            modulators=modulators if self.ia3 or self.lora else None,
         )
         attn_output = attn_outputs[0]  # output_attn: a, present, (attentions)
         outputs = attn_outputs[1:]
-        
+
         # first adapter block
         if modulators and isinstance(modulators[-2], Adapter):
             attn_output, _, _ = modulators[-2](attn_output, attn_output)
@@ -235,16 +319,22 @@ class DecisionTransformerGPT2BlockWithIA3(DecisionTransformerGPT2Block):
             attn_output = cross_attn_outputs[0]
             # residual connection
             hidden_states = residual + attn_output
-            outputs = outputs + cross_attn_outputs[2:]  # add cross attentions if we output attention weights
+            outputs = (
+                outputs + cross_attn_outputs[2:]
+            )  # add cross attentions if we output attention weights
 
         residual = hidden_states
         hidden_states = self.ln_2(hidden_states)
-        feed_forward_hidden_states = self.mlp(hidden_states, modulators=modulators if self.ia3 or self.lora else None)
-        
+        feed_forward_hidden_states = self.mlp(
+            hidden_states, modulators=modulators if self.ia3 or self.lora else None
+        )
+
         # second adapter block
         if modulators and isinstance(modulators[-1], Adapter):
-            feed_forward_hidden_states, _, _ = modulators[-1](feed_forward_hidden_states, attn_output)
-        
+            feed_forward_hidden_states, _, _ = modulators[-1](
+                feed_forward_hidden_states, attn_output
+            )
+
         # residual connection
         hidden_states = residual + feed_forward_hidden_states
 
@@ -263,17 +353,38 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
     Unfortunately, the entire forward() need to be overwritten to incorportate this functionality.
 
     """
-    def __init__(self, config, ia3=False, lora=False, ia3_lff_pre=False, lora_dropout=0):
+
+    def __init__(
+        self,
+        config,
+        ia3=False,
+        lora=False,
+        ia3_lff_pre=False,
+        lora_dropout=0,
+        lora_type="hide",
+    ):
         super().__init__(config)
         self.ia3 = ia3
         self.lora = lora
         self.ia3_lff_pre = ia3_lff_pre
+        self.lora_type = lora_type
         del self.h
         self.h = nn.ModuleList(
-            [DecisionTransformerGPT2BlockWithIA3(config, layer_idx=i, ia3=ia3, lora=lora,
-                                                 ia3_lff_pre=ia3_lff_pre, lora_dropout=lora_dropout)
-             for i in range(config.num_hidden_layers)]
+            [
+                DecisionTransformerGPT2BlockWithIA3(
+                    config,
+                    layer_idx=i,
+                    ia3=ia3,
+                    lora=lora,
+                    ia3_lff_pre=ia3_lff_pre,
+                    lora_dropout=lora_dropout,
+                )
+                for i in range(config.num_hidden_layers)
+            ]
         )
+        if lora:
+            if lora_type == "hide":
+                self.lora_layer = hide_lora_pool()
         self.post_init()
 
     def forward(
@@ -296,23 +407,35 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
         # extract layer prompts
         prompt_per_layer, modulators_per_layer = None, None
         if prompt is not None:
-            if self.ia3 or self.lora:
+            if (self.ia3 or self.lora) and self.lora_type == "l2m":
                 assert len(prompt) == self.config.n_layer
                 modulators_per_layer = prompt
                 prompt = None
             else:
-                assert prompt.shape[1] == self.config.n_layer, "Prompt shape must be (batch_size, n_layer, hidden_size)"
+                assert (
+                    prompt.shape[1] == self.config.n_layer
+                ), "Prompt shape must be (batch_size, n_layer, hidden_size)"
                 prompt_per_layer = [prompt[:, i] for i in range(self.config.n_layer)]
 
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_attentions = (
+            output_attentions
+            if output_attentions is not None
+            else self.config.output_attentions
+        )
         output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+            output_hidden_states
+            if output_hidden_states is not None
+            else self.config.output_hidden_states
         )
         use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = (
+            return_dict if return_dict is not None else self.config.use_return_dict
+        )
 
         if input_ids is not None and inputs_embeds is not None:
-            raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
+            raise ValueError(
+                "You cannot specify both input_ids and inputs_embeds at the same time"
+            )
         elif input_ids is not None:
             input_shape = input_ids.size()
             input_ids = input_ids.view(-1, input_shape[-1])
@@ -324,7 +447,9 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
             raise ValueError("You have to specify either input_ids or inputs_embeds")
 
         device = input_ids.device if input_ids is not None else inputs_embeds.device
-        original_seq_len = input_ids.shape[1] if input_ids is not None else inputs_embeds.shape[1]
+        original_seq_len = (
+            input_ids.shape[1] if input_ids is not None else inputs_embeds.shape[1]
+        )
 
         if token_type_ids is not None:
             token_type_ids = token_type_ids.view(-1, input_shape[-1])
@@ -337,9 +462,16 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
         else:
             past_length = past_key_values[0][0].size(-2)
             if len(past_key_values) < len(self.h):
-                past_key_values = tuple([*past_key_values, *[None] * (len(self.h) - len(past_key_values))])
+                past_key_values = tuple(
+                    [*past_key_values, *[None] * (len(self.h) - len(past_key_values))]
+                )
         if position_ids is None:
-            position_ids = torch.arange(past_length, input_shape[-1] + past_length, dtype=torch.long, device=device)
+            position_ids = torch.arange(
+                past_length,
+                input_shape[-1] + past_length,
+                dtype=torch.long,
+                device=device,
+            )
             position_ids = position_ids.unsqueeze(0).view(-1, input_shape[-1])
 
         # GPT2Attention mask.
@@ -350,7 +482,11 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
             # extend attention mask for prompts
             if prompt is not None:
                 attention_mask = torch.cat(
-                    (torch.ones(prompt_per_layer[0].shape[:2], device=device), attention_mask), dim=1
+                    (
+                        torch.ones(prompt_per_layer[0].shape[:2], device=device),
+                        attention_mask,
+                    ),
+                    dim=1,
                 )
 
             attention_mask = attention_mask.view(batch_size, -1)
@@ -372,7 +508,11 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
         # If a 2D or 3D attention mask is provided for the cross-attention
         # we need to make broadcastable to [batch_size, num_heads, seq_length, seq_length]
         if self.config.add_cross_attention and encoder_hidden_states is not None:
-            encoder_batch_size, encoder_sequence_length, _ = encoder_hidden_states.size()
+            (
+                encoder_batch_size,
+                encoder_sequence_length,
+                _,
+            ) = encoder_hidden_states.size()
             encoder_hidden_shape = (encoder_batch_size, encoder_sequence_length)
             if encoder_attention_mask is None:
                 encoder_attention_mask = torch.ones(encoder_hidden_shape, device=device)
@@ -400,14 +540,17 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
 
         presents = () if use_cache else None
         all_self_attentions = () if output_attentions else None
-        all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
+        all_cross_attentions = (
+            () if output_attentions and self.config.add_cross_attention else None
+        )
         all_hidden_states = () if output_hidden_states else None
         pruned_mask = False
         for i, (block, layer_past) in enumerate(zip(self.h, past_key_values)):
-
             # prepend prompt
             if prompt is not None:
-                hidden_states = self.prune_hidden_states(hidden_states, original_seq_len, i)
+                hidden_states = self.prune_hidden_states(
+                    hidden_states, original_seq_len, i
+                )
                 hidden_states = torch.cat((prompt_per_layer[i], hidden_states), dim=1)
             modulators = None
             if (self.ia3 or self.lora) and modulators_per_layer is not None:
@@ -423,7 +566,9 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
                 torch.cuda.set_device(hidden_states.device)
                 # Ensure layer_past is on same device as hidden_states (might not be correct)
                 if layer_past is not None:
-                    layer_past = tuple(past_state.to(hidden_states.device) for past_state in layer_past)
+                    layer_past = tuple(
+                        past_state.to(hidden_states.device) for past_state in layer_past
+                    )
                 # Ensure that attention_mask is always on the same device as hidden_states
                 if attention_mask is not None:
                     attention_mask = attention_mask.to(hidden_states.device)
@@ -433,7 +578,6 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
             if self.gradient_checkpointing and self.training:
-
                 if use_cache:
                     logger.warning(
                         "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
@@ -466,7 +610,7 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
                     encoder_attention_mask=encoder_attention_mask,
                     use_cache=use_cache,
                     output_attentions=output_attentions,
-                    modulators=modulators
+                    modulators=modulators,
                 )
 
             hidden_states = outputs[0]
@@ -474,9 +618,13 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
                 presents = presents + (outputs[1],)
 
             if output_attentions:
-                all_self_attentions = all_self_attentions + (outputs[2 if use_cache else 1],)
+                all_self_attentions = all_self_attentions + (
+                    outputs[2 if use_cache else 1],
+                )
                 if self.config.add_cross_attention:
-                    all_cross_attentions = all_cross_attentions + (outputs[3 if use_cache else 2],)
+                    all_cross_attentions = all_cross_attentions + (
+                        outputs[3 if use_cache else 2],
+                    )
 
             # Model Parallel: If it's the last layer for that device, put things on the next device
             if self.model_parallel:
@@ -494,7 +642,13 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
         if not return_dict:
             return tuple(
                 v
-                for v in [hidden_states, presents, all_hidden_states, all_self_attentions, all_cross_attentions]
+                for v in [
+                    hidden_states,
+                    presents,
+                    all_hidden_states,
+                    all_self_attentions,
+                    all_cross_attentions,
+                ]
                 if v is not None
             )
 
@@ -520,33 +674,52 @@ class MultiPromptDTModel(OnlineDecisionTransformerModel):
 
     """
 
-    def __init__(self, config, observation_space, action_space, ia3_lff_pre=False, lora_droput=0, **kwargs):
+    def __init__(
+        self,
+        config,
+        observation_space,
+        action_space,
+        ia3_lff_pre=False,
+        lora_droput=0,
+        **kwargs,
+    ):
         super().__init__(config, observation_space, action_space, **kwargs)
-        self.ia3 = self.prompt_kwargs.get('kind', False) in ["ia3", "l2m_ia3"]
+        self.ia3 = self.prompt_kwargs.get("kind", False) in ["ia3", "l2m_ia3"]
         self.lora = self.prompt_kwargs.get("kind", False) in ["lora", "l2m_lora"]
         self.ia3_lff_pre = ia3_lff_pre
         del self.encoder
-        self.encoder = MultiPromptDTGPT2Model(config, ia3=self.ia3, lora=self.lora, 
-                                              ia3_lff_pre=self.ia3_lff_pre, lora_dropout=lora_droput)
+        self.encoder = MultiPromptDTGPT2Model(
+            config,
+            ia3=self.ia3,
+            lora=self.lora,
+            ia3_lff_pre=self.ia3_lff_pre,
+            lora_dropout=lora_droput,
+        )
         # self.post_init()
 
     def compute_hidden_states(
-            self,
-            states=None,
-            actions=None,
-            rewards=None,
-            returns_to_go=None,
-            timesteps=None,
-            attention_mask=None,
-            output_hidden_states=None,
-            output_attentions=None,
-            return_dict=None,
-            prompt=None,
-            task_id=None
+        self,
+        states=None,
+        actions=None,
+        rewards=None,
+        returns_to_go=None,
+        timesteps=None,
+        attention_mask=None,
+        output_hidden_states=None,
+        output_attentions=None,
+        return_dict=None,
+        prompt=None,
+        task_id=None,
     ):
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_attentions = (
+            output_attentions
+            if output_attentions is not None
+            else self.config.output_attentions
+        )
         output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+            output_hidden_states
+            if output_hidden_states is not None
+            else self.config.output_hidden_states
         )
         batch_size, seq_length = actions.shape[0], actions.shape[1]
 
@@ -555,71 +728,134 @@ class MultiPromptDTModel(OnlineDecisionTransformerModel):
             attention_mask = torch.ones((batch_size, seq_length), dtype=torch.long)
 
         # embed each modality with a different head
-        state_embeddings, action_embeddings, returns_embeddings, rewards_embeddings = self.embed_inputs(
-            states, actions, returns_to_go, rewards, attention_mask
-        )
+        (
+            state_embeddings,
+            action_embeddings,
+            returns_embeddings,
+            rewards_embeddings,
+        ) = self.embed_inputs(states, actions, returns_to_go, rewards, attention_mask)
 
         if self.use_time_embds:
-            time_embeddings = self.get_time_embeddings(timesteps, attention_mask=attention_mask)
-            state_embeddings, action_embeddings, returns_embeddings, rewards_embeddings = self.add_pos_embeddings(
-                time_embeddings, state_embeddings, action_embeddings, returns_embeddings, rewards_embeddings
+            time_embeddings = self.get_time_embeddings(
+                timesteps, attention_mask=attention_mask
+            )
+            (
+                state_embeddings,
+                action_embeddings,
+                returns_embeddings,
+                rewards_embeddings,
+            ) = self.add_pos_embeddings(
+                time_embeddings,
+                state_embeddings,
+                action_embeddings,
+                returns_embeddings,
+                rewards_embeddings,
             )
         else:
             time_embeddings = None
 
         # prepare inputs + masks
         inputs, masks = self.construct_inputs_and_masks(
-            state_embeddings, action_embeddings, returns_embeddings, rewards_embeddings,
-            attention_mask, time_embeddings=time_embeddings
+            state_embeddings,
+            action_embeddings,
+            returns_embeddings,
+            rewards_embeddings,
+            attention_mask,
+            time_embeddings=time_embeddings,
         )
-        stacked_inputs, stacked_attention_mask = self.prepare_inputs_and_masks(inputs, masks, batch_size, seq_length)
+        stacked_inputs, stacked_attention_mask = self.prepare_inputs_and_masks(
+            inputs, masks, batch_size, seq_length
+        )
 
-        prompt_infos, prompt_hidden_states, prompt_attention_mask, prompt_stacked_inputs = None, None, None, None
+        (
+            prompt_infos,
+            prompt_hidden_states,
+            prompt_attention_mask,
+            prompt_stacked_inputs,
+        ) = None, None, None, None
         if self.learnable_prompt:
             learnable_prompt_inputs = self.compute_learnable_prompt_inputs(
-                stacked_inputs, stacked_attention_mask, output_attentions,
-                output_hidden_states, return_dict, task_id
+                stacked_inputs,
+                stacked_attention_mask,
+                output_attentions,
+                output_hidden_states,
+                return_dict,
+                task_id,
             )
             if learnable_prompt_inputs is not None:
                 prompt_stacked_inputs = learnable_prompt_inputs["prompt_stacked_inputs"]
-                prompt_stacked_attention_mask = learnable_prompt_inputs["prompt_stacked_attention_mask"]
+                prompt_stacked_attention_mask = learnable_prompt_inputs[
+                    "prompt_stacked_attention_mask"
+                ]
                 prompt_infos = learnable_prompt_inputs["prompt_infos"]
                 # can be None in case of training keys only
-                if prompt_stacked_inputs is not None and prompt_stacked_attention_mask is not None:
-                    if learnable_prompt_inputs.get("img_encoder_vectors", None) is not None and len(states.shape) > 4:     
-                        # reproduce state_embeddings + stacked_inputs            
+                if (
+                    prompt_stacked_inputs is not None
+                    and prompt_stacked_attention_mask is not None
+                ):
+                    if (
+                        learnable_prompt_inputs.get("img_encoder_vectors", None)
+                        is not None
+                        and len(states.shape) > 4
+                    ):
+                        # reproduce state_embeddings + stacked_inputs
                         state_embeddings = self.modulate_image_encoder(
-                            states, mod_vectors=learnable_prompt_inputs["img_encoder_vectors"]
+                            states,
+                            mod_vectors=learnable_prompt_inputs["img_encoder_vectors"],
                         )
-                        state_embeddings, _, _, _ = self.add_pos_embeddings(time_embeddings, state_embeddings, None, None, None)
-                        
+                        state_embeddings, _, _, _ = self.add_pos_embeddings(
+                            time_embeddings, state_embeddings, None, None, None
+                        )
+
                         # prepare inputs + masks
                         inputs, masks = self.construct_inputs_and_masks(
-                            state_embeddings, action_embeddings, returns_embeddings, rewards_embeddings,
-                            attention_mask, time_embeddings=time_embeddings
+                            state_embeddings,
+                            action_embeddings,
+                            returns_embeddings,
+                            rewards_embeddings,
+                            attention_mask,
+                            time_embeddings=time_embeddings,
                         )
-                        stacked_inputs, stacked_attention_mask = self.prepare_inputs_and_masks(inputs, masks, 
-                                                                                            batch_size, seq_length)
+                        (
+                            stacked_inputs,
+                            stacked_attention_mask,
+                        ) = self.prepare_inputs_and_masks(
+                            inputs, masks, batch_size, seq_length
+                        )
                     if learnable_prompt_inputs.get("embed_vectors", None) is not None:
                         # reproduce stacked_inputs
                         stacked_inputs = self.modulate_embeddings(
-                            learnable_prompt_inputs["embed_vectors"], state_embeddings, action_embeddings, returns_embeddings,
-                            rewards_embeddings, time_embeddings, attention_mask, batch_size, seq_length
+                            learnable_prompt_inputs["embed_vectors"],
+                            state_embeddings,
+                            action_embeddings,
+                            returns_embeddings,
+                            rewards_embeddings,
+                            time_embeddings,
+                            attention_mask,
+                            batch_size,
+                            seq_length,
                         )
-                                    
+
                     if self.config.add_cross_attention:
                         stacked_inputs = prompt_stacked_inputs
                         stacked_attention_mask = prompt_stacked_attention_mask
                     if self.prompt.prefix:
-                        stacked_attention_mask = torch.cat((prompt_stacked_attention_mask, stacked_attention_mask), dim=1)
+                        stacked_attention_mask = torch.cat(
+                            (prompt_stacked_attention_mask, stacked_attention_mask),
+                            dim=1,
+                        )
 
         # make position ids
         if self.global_pos_embds:
-            position_ids = torch.arange(stacked_inputs.shape[1], device=stacked_inputs.device, dtype=torch.long)
+            position_ids = torch.arange(
+                stacked_inputs.shape[1], device=stacked_inputs.device, dtype=torch.long
+            )
             position_ids = position_ids.unsqueeze(0)
-        else: 
-            position_ids = torch.zeros(stacked_inputs.shape[:2], device=stacked_inputs.device, dtype=torch.long)
-        
+        else:
+            position_ids = torch.zeros(
+                stacked_inputs.shape[:2], device=stacked_inputs.device, dtype=torch.long
+            )
+
         # we feed in the input embeddings (not word indices as in NLP) to the model
         encoder_outputs = self.encoder(
             inputs_embeds=stacked_inputs,
@@ -632,68 +868,112 @@ class MultiPromptDTModel(OnlineDecisionTransformerModel):
             encoder_hidden_states=prompt_hidden_states,
             encoder_attention_mask=prompt_attention_mask,
             prompt=prompt_stacked_inputs if not self.prompt.prefix else None,
-            past_key_values=prompt_stacked_inputs if self.prompt.prefix else None
+            past_key_values=prompt_stacked_inputs if self.prompt.prefix else None,
         )
         # grab last hidden state
-        x = encoder_outputs['last_hidden_state']
+        x = encoder_outputs["last_hidden_state"]
 
-        if (self.learnable_prompt or prompt is not None) and not self.config.add_cross_attention:
-            x = x[:, -seq_length * len(inputs):]
+        if (
+            self.learnable_prompt or prompt is not None
+        ) and not self.config.add_cross_attention:
+            x = x[:, -seq_length * len(inputs) :]
         # reshape x so that the second dimension corresponds to the original
         # returns (0), states (1), or actions (2); i.e. x[:,1,t] is the token for s_t
-        x = x.reshape(batch_size, seq_length, len(inputs), self.hidden_size).permute(0, 2, 1, 3)
+        x = x.reshape(batch_size, seq_length, len(inputs), self.hidden_size).permute(
+            0, 2, 1, 3
+        )
         # [batch_size, r_s_a, seq_len, hidden_size]
         return x, encoder_outputs, prompt_infos
-    
-    def modulate_embeddings(self, embed_vectors, state_embeddings, action_embeddings, returns_embeddings,
-                            rewards_embeddings, time_embeddings, attention_mask, batch_size, seq_length):
+
+    def modulate_embeddings(
+        self,
+        embed_vectors,
+        state_embeddings,
+        action_embeddings,
+        returns_embeddings,
+        rewards_embeddings,
+        time_embeddings,
+        attention_mask,
+        batch_size,
+        seq_length,
+    ):
         # modulate embeddings with learned modulation vectors
         assert embed_vectors is not None
         state_embeddings = state_embeddings * embed_vectors[0]
         action_embeddings = action_embeddings * embed_vectors[1]
-        if self.rtg_condition: 
+        if self.rtg_condition:
             returns_embeddings = returns_embeddings * embed_vectors[2]
-        if self.reward_condition: 
+        if self.reward_condition:
             idx = 3 if self.rtg_condition else 2
             rewards_embeddings = rewards_embeddings * embed_vectors[idx]
-        
+
         # reconstruct stacked_inputs
         inputs, masks = self.construct_inputs_and_masks(
-            state_embeddings, action_embeddings, returns_embeddings, rewards_embeddings,
-            attention_mask, time_embeddings=time_embeddings
+            state_embeddings,
+            action_embeddings,
+            returns_embeddings,
+            rewards_embeddings,
+            attention_mask,
+            time_embeddings=time_embeddings,
         )
-        stacked_inputs, _ = self.prepare_inputs_and_masks(inputs, masks, batch_size, seq_length)
+        stacked_inputs, _ = self.prepare_inputs_and_masks(
+            inputs, masks, batch_size, seq_length
+        )
         return stacked_inputs
-    
+
     def modulate_image_encoder(self, states, mod_vectors):
         # is_image_space
-        states = states.float() / 255.0    
+        states = states.float() / 255.0
         return self.get_state_embeddings(states, mod_vectors=mod_vectors)
 
 
 class DiscreteMPDTModel(DiscreteDTModel, MultiPromptDTModel):
-
-    def __init__(self, config, observation_space, action_space, ia3_lff_pre=False, lora_dropout=0, **kwargs):
+    def __init__(
+        self,
+        config,
+        observation_space,
+        action_space,
+        ia3_lff_pre=False,
+        lora_dropout=0,
+        **kwargs,
+    ):
         super().__init__(config, observation_space, action_space, **kwargs)
         # repeat init of MultiPromptDTModel
         # reasons is that post_init() has been called, and would destroy initialization of prompts/modulation vectors
-        self.ia3 = self.prompt_kwargs.get('kind', False) in ["ia3", "l2m_ia3"]
+        self.ia3 = self.prompt_kwargs.get("kind", False) in ["ia3", "l2m_ia3"]
         self.lora = self.prompt_kwargs.get("kind", False) in ["lora", "l2m_lora"]
         self.ia3_lff_pre = ia3_lff_pre
         del self.encoder
-        self.encoder = MultiPromptDTGPT2Model(config, ia3=self.ia3, lora=self.lora, 
-                                              ia3_lff_pre=self.ia3_lff_pre, lora_dropout=lora_dropout)
+        self.encoder = MultiPromptDTGPT2Model(
+            config,
+            ia3=self.ia3,
+            lora=self.lora,
+            ia3_lff_pre=self.ia3_lff_pre,
+            lora_dropout=lora_dropout,
+        )
 
 
 class MDMPDTModel(MultiDomainDiscreteDTModel, MultiPromptDTModel):
-
-    def __init__(self, config, observation_space, action_space, ia3_lff_pre=False, lora_dropout=0, **kwargs):
+    def __init__(
+        self,
+        config,
+        observation_space,
+        action_space,
+        ia3_lff_pre=False,
+        lora_dropout=0,
+        **kwargs,
+    ):
         super().__init__(config, observation_space, action_space, **kwargs)
         # repeat init of MultiPromptDTModel
         # reasons is that post_init() has been called, and would destroy initialization of prompts/modulation vectors
-        self.ia3 = self.prompt_kwargs.get('kind', False) in ["ia3", "l2m_ia3"]
+        self.ia3 = self.prompt_kwargs.get("kind", False) in ["ia3", "l2m_ia3"]
         self.lora = self.prompt_kwargs.get("kind", False) in ["lora", "l2m_lora"]
         self.ia3_lff_pre = ia3_lff_pre
         del self.encoder
-        self.encoder = MultiPromptDTGPT2Model(config, ia3=self.ia3, lora=self.lora,
-                                              ia3_lff_pre=self.ia3_lff_pre, lora_dropout=lora_dropout)
+        self.encoder = MultiPromptDTGPT2Model(
+            config,
+            ia3=self.ia3,
+            lora=self.lora,
+            ia3_lff_pre=self.ia3_lff_pre,
+            lora_dropout=lora_dropout,
+        )
