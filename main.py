@@ -234,6 +234,14 @@ def main(config):
     res, score = None, None
     try:
         res = agent.learn(**config.run_params, eval_env=eval_env, callback=callbacks)
+        agent.save(
+            config.get("MODELS_DIR", None)
+            + "/"
+            + config.get("experiment_name", None)
+            + "_"
+            + config.get("seed", None)
+            + ".zip"
+        )
     finally:
         print("Finalizing run...")
         if config.use_wandb:

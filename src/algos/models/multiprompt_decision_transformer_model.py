@@ -361,13 +361,11 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
         lora=False,
         ia3_lff_pre=False,
         lora_dropout=0,
-        lora_type="hide",
     ):
         super().__init__(config)
         self.ia3 = ia3
         self.lora = lora
         self.ia3_lff_pre = ia3_lff_pre
-        self.lora_type = lora_type
         del self.h
         self.h = nn.ModuleList(
             [
@@ -381,10 +379,6 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
                 )
                 for i in range(config.num_hidden_layers)
             ]
-        )
-        if lora:
-            if lora_type == "hide":
-                self.lora_layer = hide_lora_pool()
         self.post_init()
 
     def forward(
@@ -407,7 +401,7 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
         # extract layer prompts
         prompt_per_layer, modulators_per_layer = None, None
         if prompt is not None:
-            if (self.ia3 or self.lora) and self.lora_type == "l2m":
+            if self.ia3 or self.lora:
                 assert len(prompt) == self.config.n_layer
                 modulators_per_layer = prompt
                 prompt = None
@@ -967,7 +961,7 @@ class MDMPDTModel(MultiDomainDiscreteDTModel, MultiPromptDTModel):
         # repeat init of MultiPromptDTModel
         # reasons is that post_init() has been called, and would destroy initialization of prompts/modulation vectors
         self.ia3 = self.prompt_kwargs.get("kind", False) in ["ia3", "l2m_ia3"]
-        self.lora = self.prompt_kwargs.get("kind", False) in ["lora", "l2m_lora"]
+        self.lora = self.prompt_kwargs.get("kind", False) in ["lora", "l2m_lora", "hide_lora"]
         self.ia3_lff_pre = ia3_lff_pre
         del self.encoder
         self.encoder = MultiPromptDTGPT2Model(
