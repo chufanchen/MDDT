@@ -1035,18 +1035,18 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         for _ in range(gradient_steps):
             (
                 observations,
-                actions,
+                actions,  # torch.equal(actions, action_targets) should be True
                 next_observations,
                 rewards,
                 rewards_to_go,
                 timesteps,
                 attention_mask,
                 dones,
-                task_ids,
+                task_ids,  # [batch_size]
                 trj_ids,
-                action_targets,
-                action_mask,
-                prompt,
+                action_targets,  # [batch_size, context_length, action_tokens]
+                action_mask,  # mask out padding action tokens
+                prompt,  # None if not use prompt buffer
             ) = self.sample_batch(batch_size)
 
             # forward pass through policy
@@ -1762,7 +1762,10 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             optimizer=self.tap_optimizer, T_max=run_epochs
         )
         criterion = torch.nn.CrossEntropyLoss().to("cuda")
+
+        crct_num = self.current_task_id + 1
         for epoch in range(run_epochs):
+            # Sample pseduo sample from representation
             sampled_data = []
             sampled_label = []
             num_sampled_per_tsk = self.batch_size
@@ -1790,41 +1793,40 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             inputs = sampled_data
             targets = sampled_label
 
-            sf_indexes = torch.randperm(inputs.size(0))
-            inputs = inputs[sf_indexes]
-            targets = targets[sf_indexes]
+            shuffled_indexes = torch.randperm(inputs.size(0))
+            inputs = inputs[shuffled_indexes]
+            targets = targets[shuffled_indexes]
 
-        crct_num = self.current_task_id + 1
-        for _iter in range(crct_num):
-            inp = inputs[
-                _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
-            ]
-            tgt = targets[
-                _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
-            ]
-            (
-                state_preds,
-                action_preds,
-                action_log_probs,
-                return_preds,
-                reward_preds,
-                action_logits,
-                entropy,
-                tii_preds,
-            ) = self.policy.get_predictions(
-                inp, with_log_probs=False, deterministic=True, task_id=None
-            )
-            loss = criterion(tii_preds, tgt)
+            for _iter in range(crct_num):
+                inp = inputs[
+                    _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
+                ]
+                tgt = targets[
+                    _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
+                ]
+                (
+                    state_preds,
+                    action_preds,
+                    action_log_probs,
+                    return_preds,
+                    reward_preds,
+                    action_logits,
+                    entropy,
+                    tii_preds,
+                ) = self.policy.get_predictions(
+                    inp, with_log_probs=False, deterministic=True, task_id=None
+                )
+                loss = criterion(tii_preds, tgt)
 
-            if not math.isfinite(loss.item()):
-                print("Loss is {}, stopping training".format(loss.item()))
-                sys.exit(1)
+                if not math.isfinite(loss.item()):
+                    print("Loss is {}, stopping training".format(loss.item()))
+                    sys.exit(1)
 
-            self.tap_optimizer.zero_grad()
-            loss.backward()
-            self.tap_optimizer.step()
-            torch.cuda.synchronize()
-        self.tap_scheduler.step()
+                self.tap_optimizer.zero_grad()
+                loss.backward()
+                self.tap_optimizer.step()
+                torch.cuda.synchronize()
+            self.tap_scheduler.step()
 
     def _extract_current_task_id(self, env):
         temp_env = env.envs[0]
