@@ -1,59 +1,59 @@
 # Hydra does not support having multiple defaults lists in the same file
 # therefore, need to paste in all atari/mt40_v2 names here
-mt40_v2: 
+mt40_v2:
   base: ${DATA_DIR}/metaworld_v2_cwnet_2M
-  names: 
-    - assembly-v2.pkl
-    - button-press-v2.pkl
-    - disassemble-v2.pkl
-    - plate-slide-side-v2.pkl
-    - door-lock-v2.pkl
-    - door-unlock-v2.pkl
-    - pick-place-v2.pkl
-    - drawer-close-v2.pkl
-    - coffee-pull-v2.pkl
-    - handle-pull-v2.pkl
-    - peg-insert-side-v2.pkl
-    - door-close-v2.pkl
-    - button-press-topdown-v2.pkl
-    - lever-pull-v2.pkl
-    - reach-v2.pkl
-    - door-open-v2.pkl
-    - sweep-v2.pkl
-    - box-close-v2.pkl
-    - button-press-wall-v2.pkl
-    - basketball-v2.pkl
-    - soccer-v2.pkl
-    - handle-press-v2.pkl
-    - coffee-button-v2.pkl
-    - faucet-open-v2.pkl
-    - plate-slide-v2.pkl
-    - reach-wall-v2.pkl
-    - handle-pull-side-v2.pkl
-    - drawer-open-v2.pkl
-    - dial-turn-v2.pkl
-    - sweep-into-v2.pkl
-    - bin-picking-v2.pkl
-    - coffee-push-v2.pkl
-    - pick-out-of-hole-v2.pkl
-    - button-press-topdown-wall-v2.pkl
-    - plate-slide-back-side-v2.pkl
-    - plate-slide-back-v2.pkl
-    - stick-push-v2.pkl
-    - hand-insert-v2.pkl
-    - window-open-v2.pkl
-    - pick-place-wall-v2.pkl
+  names:
+    - assembly-v2.npz
+    - button-press-v2.npz
+    - disassemble-v2.npz
+    - plate-slide-side-v2.npz
+    - door-lock-v2.npz
+    - door-unlock-v2.npz
+    - pick-place-v2.npz
+    - drawer-close-v2.npz
+    - coffee-pull-v2.npz
+    - handle-pull-v2.npz
+    - peg-insert-side-v2.npz
+    - door-close-v2.npz
+    - button-press-topdown-v2.npz
+    - lever-pull-v2.npz
+    - reach-v2.npz
+    - door-open-v2.npz
+    - sweep-v2.npz
+    - box-close-v2.npz
+    - button-press-wall-v2.npz
+    - basketball-v2.npz
+    - soccer-v2.npz
+    - handle-press-v2.npz
+    - coffee-button-v2.npz
+    - faucet-open-v2.npz
+    - plate-slide-v2.npz
+    - reach-wall-v2.npz
+    - handle-pull-side-v2.npz
+    - drawer-open-v2.npz
+    - dial-turn-v2.npz
+    - sweep-into-v2.npz
+    - bin-picking-v2.npz
+    - coffee-push-v2.npz
+    - pick-out-of-hole-v2.npz
+    - button-press-topdown-wall-v2.npz
+    - plate-slide-back-side-v2.npz
+    - plate-slide-back-v2.npz
+    - stick-push-v2.npz
+    - hand-insert-v2.npz
+    - window-open-v2.npz
+    - pick-place-wall-v2.npz
 
-dmcontrol: 
+dmcontrol:
   base: ${DATA_DIR}/dm_control_1M_v3_full
-  names: 
+  names:
     - cartpole_balance.npz
-    - finger_turn_easy.npz 
-    - finger_turn_hard.npz 
+    - finger_turn_easy.npz
+    - finger_turn_hard.npz
     - fish_upright.npz
     - hopper_stand.npz
-    - pendulum_swingup.npz 
-    - point_mass_easy.npz 
+    - pendulum_swingup.npz
+    - point_mass_easy.npz
     - reacher_hard.npz
     - walker_stand.npz
     - walker_run.npz

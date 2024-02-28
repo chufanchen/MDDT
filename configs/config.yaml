@@ -1,7 +1,7 @@
-LOG_DIR: ../logs
-DATA_DIR: ../data
-SSD_DATA_DIR: ../data
-MODELS_DIR: ../models
+LOG_DIR: /home/chufanchen/Beta/logs
+DATA_DIR: /home/chufanchen/Beta/data
+SSD_DATA_DIR: /home/chufanchen/Beta/data
+MODELS_DIR: /home/chufanchen/Beta/models
 
 # directory creation is handled by Hydra
 hydra:
@@ -28,7 +28,7 @@ experiment_name: test
 device: "auto"
 seed: 42
 # Hydra does the logging for us
-logdir: '.'
+logdir: "."
 use_wandb: True
 
 wandb_params:
