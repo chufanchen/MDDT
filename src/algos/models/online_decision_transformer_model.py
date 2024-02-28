@@ -59,6 +59,7 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
         separate_ln=False,
         prompt_kwargs=None,
         encoder_kwargs=None,
+        train_task_inference_only=None
     ):
         super().__init__(config)
         self.num_task_heads = num_task_heads
@@ -130,10 +131,12 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
         self.setup_prompt()
         self.tok_to_pos = {"s": 0, "rtg": 1, "a": 2}
         self.tok_to_pred_pos = {"s": 0, "rtg": 2, "a": 1}
+        self.train_task_inference = train_task_inference_only
         # TODO: add task_identity_head
-        # num_taskes = 50
-        # tii_pred_in_dim = self.config.hidden_size
-        # self.tii_head = self.make_head(tii_pred_in_dim, num_taskes, self.n_layer_head)
+        num_taskes = 10
+        seq_length = 5
+        tii_pred_in_dim = self.config.hidden_size * 5
+        self.predict_task_id = self.make_head(tii_pred_in_dim, num_taskes, self.n_layer_head)
 
     def get_optim_groups(self, weight_decay):
         """
@@ -454,6 +457,7 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
             reward_preds,
             action_logits,
             entropy,
+            tii_preds,
         ) = self.get_predictions(
             x,
             with_log_probs=with_log_probs,
@@ -474,6 +478,7 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
             state_preds=state_preds if ddp_kwargs.get("predict_state") else None,
             action_preds=action_preds,
             return_preds=return_preds if ddp_kwargs.get("predict_return") else None,
+            tii_preds=tii_preds,
             hidden_states=encoder_outputs.hidden_states,
             attentions=encoder_outputs.attentions,
             action_log_probs=action_log_probs,

@@ -143,7 +143,7 @@ class UDT(DecisionTransformerSb3):
                     )
             print(self.critic)
             print(self.critic_optimizer)
-
+    # refactor to general targets
     def update_policy(self, policy_output, action_targets, attention_mask, ent_coef,
                       ent_tuning=True, return_targets=None, reward_targets=None, state_targets=None,
                       timesteps=None, dones=None, next_states=None, action_mask=None):
@@ -174,11 +174,23 @@ class UDT(DecisionTransformerSb3):
     def compute_policy_loss(self, policy_output, action_targets, attention_mask, ent_coef,
                             ent_tuning=True, return_targets=None, reward_targets=None,  state_targets=None, dones=None,
                             timesteps=None, next_states=None, action_mask=None):
+        
+        if self.train_task_inference_only:
+            tii_loss, tii_loss_dict = self.compute_tii_loss(
+            policy_output, action_targets, attention_mask, ent_coef,
+            ent_tuning=ent_tuning, return_targets=return_targets, state_targets=state_targets,
+            dones=dones, timesteps=timesteps, reward_targets=reward_targets, action_mask=action_mask
+        )
+            return tii_loss, tii_loss_dict
+            
+        
         loss, loss_dict = self.compute_main_policy_loss(
             policy_output, action_targets, attention_mask, ent_coef,
             ent_tuning=ent_tuning, return_targets=return_targets, state_targets=state_targets,
             dones=dones, timesteps=timesteps, reward_targets=reward_targets, action_mask=action_mask
         )
+        
+        
 
         # compute return loss
         if self.target_return_loss_fn is not None:
@@ -227,7 +239,18 @@ class UDT(DecisionTransformerSb3):
         # overwrite previously stored loss
         loss_dict["loss"] = loss.item()
         return loss, loss_dict
-
+    
+    def compute_tii_loss(self, policy_output, tii_targets, attention_mask, ent_coef,
+                                 ent_tuning=True, return_targets=None, reward_targets=None,
+                                 state_targets=None, dones=None, timesteps=None, action_mask=None):
+        tii_preds = policy_output.tii_preds
+        
+        loss_dict = {}
+        assert self.loss_fn_type == "ce", "base criterion should be CrossEntropyLoss"
+        loss = self.loss_fn(tii_preds, tii_targets)
+        loss_dict["loss_tii"] = loss.item()
+        return loss, loss_dict
+        
     def compute_main_policy_loss(self, policy_output, action_targets, attention_mask, ent_coef,
                                  ent_tuning=True, return_targets=None, reward_targets=None,
                                  state_targets=None, dones=None, timesteps=None, action_mask=None):
@@ -238,6 +261,7 @@ class UDT(DecisionTransformerSb3):
         loss_dict = {}
         act_dim = action_preds.shape[2]
         # shape: [batch_size, context_len, action_dim] (before masking)
+        # mask with attention mask
         if len(action_preds.shape) == 3:
             # don't do in discrete action case
             action_preds = action_preds.reshape(-1, act_dim)[attention_mask.reshape(-1) > 0]

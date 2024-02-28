@@ -97,6 +97,7 @@ def make_agent(config, env, logdir):
         model_kwargs = agent_params_dict.pop("model_kwargs", {})
         if max_act_dim is not None:
             model_kwargs["max_act_dim"] = max_act_dim
+        model_kwargs["train_task_inference_only"] = agent_params_dict["train_task_inference_only"]
 
         # exploration specific params
         action_noise_std = agent_params_dict.pop("action_noise_std", None)

@@ -335,7 +335,7 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
     def get_predictions(
         self, x, with_log_probs=False, deterministic=False, task_id=None
     ):
-        action_log_probs, reward_preds, action_logits, entropy = None, None, None, None
+        action_log_probs, reward_preds, action_logits, entropy, tii_preds = None, None, None, None, None
         # x: [batch_size x tokens x context_len x hidden_dim]
         return_preds = self.predict_return(
             x[:, self.tok_to_pred_pos["rtg"]]
@@ -352,6 +352,8 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
         ) = self.action_log_prob_logits(x_actions)
         if self.reward_condition:
             reward_preds = self.predict_reward(x[:, self.tok_to_pred_pos["r"]])
+        
+        tii_preds = self.predict_task_id(x[:, 0].reshape(x.shape[0], -1))
         return (
             state_preds,
             action_preds,
@@ -360,6 +362,7 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
             reward_preds,
             action_logits,
             entropy,
+            tii_preds,
         )
 
     def tokenize_actions(self, a):

@@ -1,4 +1,6 @@
 import os
+import math
+import sys
 import time
 import collections
 import numpy as np
@@ -126,6 +128,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         load_kwargs=None,
         freeze_kwargs=None,
         lr_sched_kwargs=None,
+        train_task_inference_only=None,
     ):
         super().__init__(
             policy,
@@ -241,7 +244,13 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.current_task_id, device=self.device, dtype=torch.int32
         )
         self.amp_dtype = torch.float16
-
+        self.train_task_inference_only = train_task_inference_only
+        # TODO: Should read from config
+        self.num_tasks = 10
+        self.temp_replay_buffer_class = TrajectoryReplayBuffer
+        self.tsk_mean = dict()
+        self.tsk_cov = dict()
+        self.ca_learning_rate = learning_rate  # TODO: use separate lr
         self.debug = debug
         if self.debug:
             from ..utils.debug import GradPlotter
@@ -296,6 +305,12 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.replay_buffer.init_buffer_from_dataset(self.data_paths)
         if self.use_prompt_buffer:
             self._setup_prompt_buffer()
+        # Temporary replay buffer storing current task's trajectories for compute_mean
+        self.temp_replay_buffer = self.temp_replay_buffer_class(
+            self.buffer_size / self.num_tasks,
+            self.observation_space,
+            self.action_space,
+        )
 
     def _setup_prompt_buffer(self):
         # i.e., ensures that if prompt_buffer_kwargs are passed and contain same args as in replay_buffer_kwargs
@@ -1096,9 +1111,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             # compute loss + update
             loss_dict = self.update_policy(
                 policy_output,
-                action_targets
-                if not self.config.train_task_inference_only
-                else task_ids,
+                action_targets if not self.train_task_inference_only else task_ids,
                 attention_mask,
                 ent_coef,
                 return_targets=rewards_to_go,
@@ -1130,13 +1143,21 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self._record_metrics_from_dict(metrics, prefix="train")
 
-    def sample_batch(self, batch_size):
-        replay_data = self.replay_buffer.sample(
-            batch_size=batch_size,
-            weight_by=self.buffer_weight_by,
-            env=self._vec_normalize_env,
-            top_k=self.buffer_topk,
-        )
+    def sample_batch(self, batch_size, use_temp=False):
+        if use_temp:
+            replay_data = self.temp_replay_buffer.sample(
+                batch_size=batch_size,
+                weight_by=self.buffer_weight_by,
+                env=self._vec_normalize_env,
+                top_k=self.buffer_topk,
+            )
+        else:
+            replay_data = self.replay_buffer.sample(
+                batch_size=batch_size,
+                weight_by=self.buffer_weight_by,
+                env=self._vec_normalize_env,
+                top_k=self.buffer_topk,
+            )
         (
             observations,
             actions,
@@ -1417,10 +1438,11 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.state_std = torch.from_numpy(state_std).to(self.device).float()
 
         self.policy.eval()
-        callback.on_training_start(locals(), globals())
+        # Only for debug without pretrain model
+        # callback.on_training_start(locals(), globals())
         self.policy.train()
-        self._record_param_count()
-        self._dump_logs()
+        # self._record_param_count()
+        # self._dump_logs()
 
         if self.offline_steps > 0:
             if len(self.replay_buffer) == 0:
@@ -1450,6 +1472,15 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     self.steps_per_task is not None
                     and self.num_timesteps % self.steps_per_task == 0
                 ):
+                    # TODO: train TAP
+                    # Load current task's trajectories
+                    # TODO: check can we init buffer mutiple times?
+                    if self.data_paths[self.current_task_id] is not None:
+                        self.replay_buffer.init_buffer_from_dataset(
+                            self.data_paths[self.current_task_id]
+                        )
+                    self.compute_mean()
+                    self.train_task_adaptive_prediction()
                     self._on_task_switch()
             else:
                 rollout = self.collect_rollouts(
@@ -1470,6 +1501,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 and self.buffer_reinit_percent is not None
             ):
                 buffer_reinit = False
+                print("only for debug: should not print")
                 self.replay_buffer.reset(self.buffer_reinit_percent)
             if (
                 self.num_timesteps > 0
@@ -1635,6 +1667,164 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.optimizer = make_optimizer(
                 self.optimizer_kind, params, lr=self.learning_rate
             )
+
+    # Compute distribution of representation
+    @torch.no_grad()
+    def compute_mean(self):
+        features_per_tsk = []
+        self.policy.eval()
+        # compute current task's representation distribution
+        for step in range(10000):  # TODO: read from variable
+            (
+                observations,
+                actions,  # torch.equal(actions, action_targets) should be True
+                next_observations,
+                rewards,
+                rewards_to_go,
+                timesteps,
+                attention_mask,
+                dones,
+                task_ids,  # [batch_size]
+                trj_ids,
+                action_targets,  # [batch_size, context_length, action_tokens]
+                action_mask,  # mask out padding action tokens
+                prompt,  # None if not use prompt buffer
+            ) = self.sample_batch(self.batch_size, use_temp=True)
+            with torch.autocast(
+                device_type="cuda", dtype=self.amp_dtype, enabled=self.use_amp
+            ):
+                policy_out = self.policy(
+                    states=observations,
+                    actions=actions,
+                    rewards=rewards,
+                    returns_to_go=rewards_to_go,
+                    timesteps=timesteps.long(),
+                    attention_mask=attention_mask,
+                    return_dict=True,
+                    with_log_probs=self.stochastic_policy,
+                    deterministic=False,
+                    prompt=prompt,
+                    task_id=self.current_task_id_tensor,
+                    ddp_kwargs=self.ddp_kwargs,
+                )
+                features = policy_out.last_encoder_output
+                features_per_tsk.append(features)
+        features_per_tsk = torch.cat(features_per_tsk, dim=0)
+        if self.ddp:
+            world_size = int(os.environ["WORLD_SIZE"])
+            features_per_tsk_list = [
+                torch.zeros_like(features_per_tsk, device="cuda")
+                for _ in range(world_size)
+            ]
+            torch.distributed.barrier()
+            torch.distributed.all_gather(features_per_tsk_list, features_per_tsk)
+        else:
+            features_per_tsk_list = [features_per_tsk]
+        # TODO: use multi-centroid
+        from sklearn.cluster import KMeans
+
+        n_clusters = 10  # n_centroids
+        features_per_tsk = torch.cat(features_per_tsk_list, dim=0).cpu().numpy()
+        kmeans = KMeans(n_clusters=n_clusters)
+        kmeans.fit(features_per_tsk)
+        cluster_lables = kmeans.labels_
+        cluster_means = []
+        cluster_vars = []
+        for i in range(n_clusters):
+            cluster_data = features_per_tsk[cluster_lables == i]
+            cluster_mean = torch.tensor(
+                np.mean(cluster_data, axis=0), dtype=torch.float64
+            ).to("cuda")
+            cluster_var = torch.tensor(
+                np.var(cluster_data, axis=0), dtype=torch.float64
+            ).to("cuda")
+            cluster_means.append(cluster_mean)
+            cluster_vars.append(cluster_var)
+
+        self.tsk_mean[self.current_task_id] = cluster_means
+        self.tsk_cov[self.current_task_id] = cluster_vars
+
+    def train_task_adaptive_prediction(self):
+        self.policy.train()
+        run_epochs = 30  # crct_epochs
+        crct_num = 0
+        params = (
+            self.policy.get_optim_groups(weight_decay=self.weight_decay)
+            if self.weight_decay > 0
+            else self.policy.parameters()
+        )
+        self.tap_optimizer = make_optimizer(
+            self.optimizer_kind,
+            params,
+            lr=self.ca_learning_rate,  # TODO: use separate optimizer_kind
+        )
+        self.tap_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer=self.tap_optimizer, T_max=run_epochs
+        )
+        criterion = torch.nn.CrossEntropyLoss().to("cuda")
+        for epoch in range(run_epochs):
+            sampled_data = []
+            sampled_label = []
+            num_sampled_per_tsk = self.batch_size
+            for i in range(self.current_task_id):
+                for cluster in range(len(self.tsk_mean[i])):
+                    mean = self.tsk_mean[cluster]
+                    var = self.tsk_cov[cluster]
+                    if var.mean() == 0:
+                        continue
+                    m = torch.distributions.multivariate_normal.MultivariateNormal(
+                        mean.float(),
+                        (
+                            torch.diag(var)
+                            + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)
+                        ).float(),
+                    )
+                    sampled_data_single = m.sample(sample_shape=(num_sampled_per_tsk,))
+                    sampled_data.append(sampled_data_single)
+                    sampled_label.extend([i] * num_sampled_per_tsk)
+
+            sampled_data = torch.cat(sampled_data, dim=0).float().to("cuda")
+            sampled_label = torch.tensor(sampled_label).long().to("cuda")
+            print(sampled_data.shape)
+
+            inputs = sampled_data
+            targets = sampled_label
+
+            sf_indexes = torch.randperm(inputs.size(0))
+            inputs = inputs[sf_indexes]
+            targets = targets[sf_indexes]
+
+        crct_num = self.current_task_id + 1
+        for _iter in range(crct_num):
+            inp = inputs[
+                _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
+            ]
+            tgt = targets[
+                _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
+            ]
+            (
+                state_preds,
+                action_preds,
+                action_log_probs,
+                return_preds,
+                reward_preds,
+                action_logits,
+                entropy,
+                tii_preds,
+            ) = self.policy.get_predictions(
+                inp, with_log_probs=False, deterministic=True, task_id=None
+            )
+            loss = criterion(tii_preds, tgt)
+
+            if not math.isfinite(loss.item()):
+                print("Loss is {}, stopping training".format(loss.item()))
+                sys.exit(1)
+
+            self.tap_optimizer.zero_grad()
+            loss.backward()
+            self.tap_optimizer.step()
+            torch.cuda.synchronize()
+        self.tap_scheduler.step()
 
     def _extract_current_task_id(self, env):
         temp_env = env.envs[0]
