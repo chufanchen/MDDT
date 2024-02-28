@@ -749,6 +749,8 @@ class MultiPromptDTModel(OnlineDecisionTransformerModel):
             time_embeddings = None
 
         # prepare inputs + masks
+        # inputs: [s, rtg, a_0, a_1, ..., a_5, r]
+        # attention masks
         inputs, masks = self.construct_inputs_and_masks(
             state_embeddings,
             action_embeddings,
@@ -757,6 +759,7 @@ class MultiPromptDTModel(OnlineDecisionTransformerModel):
             attention_mask,
             time_embeddings=time_embeddings,
         )
+        # stacked_inputs: [batch_size, seq_length*len(inputs), hidden_size]
         stacked_inputs, stacked_attention_mask = self.prepare_inputs_and_masks(
             inputs, masks, batch_size, seq_length
         )

@@ -239,6 +239,7 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
             and len(state_embeddings.shape) > 3
             else (state_embeddings,)
         )
+        # x_dim actually refers to the number of x's tokens
         act_dim = len(action_embeddings)
         s_dim = len(state_embeddings)
         rtg_dim, r_dim = 1, 1
@@ -335,8 +336,14 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
     def get_predictions(
         self, x, with_log_probs=False, deterministic=False, task_id=None
     ):
-        action_log_probs, reward_preds, action_logits, entropy, tii_preds = None, None, None, None, None
-        # x: [batch_size x tokens x context_len x hidden_dim]
+        action_log_probs, reward_preds, action_logits, entropy, tii_preds = (
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        # x: [batch_size, tokens, context_len, hidden_dim]
         return_preds = self.predict_return(
             x[:, self.tok_to_pred_pos["rtg"]]
         )  # predict next return given state and action
@@ -352,7 +359,7 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
         ) = self.action_log_prob_logits(x_actions)
         if self.reward_condition:
             reward_preds = self.predict_reward(x[:, self.tok_to_pred_pos["r"]])
-        
+
         tii_preds = self.predict_task_id(x[:, 0].reshape(x.shape[0], -1))
         return (
             state_preds,
