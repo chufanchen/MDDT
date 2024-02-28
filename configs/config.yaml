@@ -1,7 +1,7 @@
-LOG_DIR: /home/chufanchen/Beta/logs
-DATA_DIR: /home/chufanchen/Beta/data
-SSD_DATA_DIR: /home/chufanchen/Beta/data
-MODELS_DIR: /home/chufanchen/Beta/models
+LOG_DIR: /home/lab304/ccf/logs
+DATA_DIR: /home/lab304/ccf/data
+SSD_DATA_DIR: /home/lab304/ccf/data
+MODELS_DIR: /home/lab304/ccf/models
 
 # directory creation is handled by Hydra
 hydra:
