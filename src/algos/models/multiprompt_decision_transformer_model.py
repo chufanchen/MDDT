@@ -13,7 +13,6 @@ from .online_decision_transformer_model import OnlineDecisionTransformerModel
 from .multi_domain_discrete_dt_model import MultiDomainDiscreteDTModel
 from .discrete_decision_transformer_model import DiscreteDTModel
 from .adapter import Adapter
-from ..prompt.hide_lora import hide_lora_pool
 
 
 logger = logging.get_logger(__name__)
@@ -379,6 +378,7 @@ class MultiPromptDTGPT2Model(DecisionTransformerGPT2Model):
                 )
                 for i in range(config.num_hidden_layers)
             ]
+        )
         self.post_init()
 
     def forward(
@@ -961,7 +961,11 @@ class MDMPDTModel(MultiDomainDiscreteDTModel, MultiPromptDTModel):
         # repeat init of MultiPromptDTModel
         # reasons is that post_init() has been called, and would destroy initialization of prompts/modulation vectors
         self.ia3 = self.prompt_kwargs.get("kind", False) in ["ia3", "l2m_ia3"]
-        self.lora = self.prompt_kwargs.get("kind", False) in ["lora", "l2m_lora", "hide_lora"]
+        self.lora = self.prompt_kwargs.get("kind", False) in [
+            "lora",
+            "l2m_lora",
+            "hide_lora",
+        ]
         self.ia3_lff_pre = ia3_lff_pre
         del self.encoder
         self.encoder = MultiPromptDTGPT2Model(

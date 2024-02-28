@@ -1091,10 +1091,14 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 ent_coef = 0
                 ent_tuning = False
 
+            # TODO: compute loss + update TII
+
             # compute loss + update
             loss_dict = self.update_policy(
                 policy_output,
-                action_targets,
+                action_targets
+                if not self.config.train_task_inference_only
+                else task_ids,
                 attention_mask,
                 ent_coef,
                 return_targets=rewards_to_go,
@@ -1267,7 +1271,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
     def compute_policy_loss(
         self,
         policy_output,
-        action_targets,
+        action_targets,  # TODO: refactor to general targets
         attention_mask,
         ent_coef,
         ent_tuning=True,
@@ -1620,6 +1624,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         if hasattr(self.policy, "prompt"):
             # self.policy.prompt.reset_counts(self.device)
             self.policy.prompt.set_task_id(self.current_task_id)
+        # Create new optimizer for each task to clear optimizer status
         if self.reset_optim_on_switch:
             print("Resetting optimizer.")
             params = (

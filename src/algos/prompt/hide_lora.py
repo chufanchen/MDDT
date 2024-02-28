@@ -168,3 +168,16 @@ class HiDeLoRAPool(Prompt):
 
     def add_dropout(self, batched_prompt):
         return batched_prompt
+
+    # Init e_t with e_{t-1}
+    def set_task_id(self, task_id):
+        super().set_task_id(task_id)
+        if task_id > 0:
+            self.k_lora_A.grad.zero_()
+            self.k_lora_A[task_id] = self.k_lora_A[task_id - 1]
+            self.k_lora_B.grad.zero_()
+            self.k_lora_B[task_id] = self.k_lora_B[task_id - 1]
+            self.v_lora_A.grad.zero_()
+            self.v_lora_A[task_id] = self.v_lora_A[task_id - 1]
+            self.v_lora_B.grad.zero_()
+            self.v_lora_B[task_id] = self.v_lora_B[task_id - 1]

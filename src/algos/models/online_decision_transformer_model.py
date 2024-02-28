@@ -130,6 +130,10 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
         self.setup_prompt()
         self.tok_to_pos = {"s": 0, "rtg": 1, "a": 2}
         self.tok_to_pred_pos = {"s": 0, "rtg": 2, "a": 1}
+        # TODO: add task_identity_head
+        # num_taskes = 50
+        # tii_pred_in_dim = self.config.hidden_size
+        # self.tii_head = self.make_head(tii_pred_in_dim, num_taskes, self.n_layer_head)
 
     def get_optim_groups(self, weight_decay):
         """

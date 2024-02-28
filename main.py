@@ -67,6 +67,8 @@ def make_agent(config, env, logdir):
         if isinstance(agent_load_path, dict)
         else agent_load_path
     )
+    # Only for debug without pretrain model
+    agent_load_path = None
     if agent_kind in AGENT_CLASSES.keys():
         if agent_kind in ["MDDT", "DDT", "MDMPDT"]:
             # https://github.com/pytorch/pytorch/issues/11201#issuecomment-421146936
