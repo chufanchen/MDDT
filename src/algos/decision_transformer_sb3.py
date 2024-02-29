@@ -250,7 +250,10 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.temp_replay_buffer_class = TrajectoryReplayBuffer
         self.tsk_mean = dict()
         self.tsk_cov = dict()
+        self.cls_mean = dict()
+        self.cls_cov = dict()
         self.ca_learning_rate = learning_rate  # TODO: use separate lr
+        self.reg = 0.01
         self.debug = debug
         if self.debug:
             from ..utils.debug import GradPlotter
@@ -1653,6 +1656,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.ep_info_buffer = collections.deque(maxlen=200)
         self.ep_success_buffer = collections.deque(maxlen=200)
         self.eval_prompt = None
+        # TODO: init prompt for next task
         if hasattr(self.policy, "prompt"):
             # self.policy.prompt.reset_counts(self.device)
             self.policy.prompt.set_task_id(self.current_task_id)
@@ -1827,6 +1831,31 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 self.tap_optimizer.step()
                 torch.cuda.synchronize()
             self.tap_scheduler.step()
+
+    def orth_loss(self, features, targets):
+        if self.cls_mean:
+            # orth loss of this batch
+            sample_mean = []
+            for k, v in self.cls_mean.items():
+                if isinstance(v, list):
+                    sample_mean.extend(v)
+                else:
+                    sample_mean.append(v)
+            sample_mean = torch.stack(sample_mean, dim=0).to("cuda", non_blocking=True)
+            M = torch.cat([sample_mean, features], dim=0)
+            sim = torch.matmul(M, M.t()) / 0.8
+            loss = torch.nn.functional.cross_entropy(
+                sim, torch.range(0, sim.shape[0] - 1).long().to("cuda")
+            )
+            # print(loss)
+            return self.reg * loss
+        else:
+            sim = torch.matmul(features, features.t()) / 0.8
+            loss = torch.nn.functional.cross_entropy(
+                sim, torch.range(0, sim.shape[0] - 1).long().to("cuda")
+            )
+            return self.reg * loss
+        # return 0
 
     def _extract_current_task_id(self, env):
         temp_env = env.envs[0]
