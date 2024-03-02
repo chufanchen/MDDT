@@ -59,7 +59,7 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
         separate_ln=False,
         prompt_kwargs=None,
         encoder_kwargs=None,
-        train_task_inference_only=None
+        train_task_inference_only=None,
     ):
         super().__init__(config)
         self.num_task_heads = num_task_heads
@@ -136,7 +136,9 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
         num_taskes = 10
         seq_length = 5
         tii_pred_in_dim = self.config.hidden_size * 5
-        self.predict_task_id = self.make_head(tii_pred_in_dim, num_taskes, self.n_layer_head)
+        self.predict_task_id = self.make_head(
+            tii_pred_in_dim, num_taskes, self.n_layer_head
+        )
 
     def get_optim_groups(self, weight_decay):
         """
@@ -992,6 +994,7 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
         self,
         exclude_prompt=True,
         exclude_action_head=False,
+        exclude_tii_head=False,
         exclude_cross_attention=False,
         exclude_adapters=False,
         exclude_img_encoder=False,
@@ -1034,6 +1037,14 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
                             for name, _ in self.action_net.named_parameters()
                         ]
                     )
+        if exclude_tii_head:
+            if hasattr(self, "predict_task_id"):
+                exclude_keys.update(
+                    [
+                        f"predict_task_id.{name}"
+                        for name, _ in self.predict_task_id.named_parameters()
+                    ]
+                )
         if exclude_cross_attention:
             exclude_keys.update(
                 [

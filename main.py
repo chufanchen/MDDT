@@ -67,8 +67,6 @@ def make_agent(config, env, logdir):
         if isinstance(agent_load_path, dict)
         else agent_load_path
     )
-    # Only for debug without pretrain model
-    agent_load_path = None
     if agent_kind in AGENT_CLASSES.keys():
         if agent_kind in ["MDDT", "DDT", "MDMPDT"]:
             # https://github.com/pytorch/pytorch/issues/11201#issuecomment-421146936
@@ -97,7 +95,9 @@ def make_agent(config, env, logdir):
         model_kwargs = agent_params_dict.pop("model_kwargs", {})
         if max_act_dim is not None:
             model_kwargs["max_act_dim"] = max_act_dim
-        model_kwargs["train_task_inference_only"] = agent_params_dict["train_task_inference_only"]
+        model_kwargs["train_task_inference_only"] = agent_params_dict[
+            "train_task_inference_only"
+        ]
 
         # exploration specific params
         action_noise_std = agent_params_dict.pop("action_noise_std", None)
@@ -245,6 +245,8 @@ def main(config):
             + config.get("seed", None)
             + ".zip"
         )
+    except Exception as e:
+        print(e)
     finally:
         print("Finalizing run...")
         if config.use_wandb:
