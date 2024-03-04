@@ -237,13 +237,6 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         # used to persist context during rollouts (necessary if performing updates during epoch)
         self.rollout_buffer = {}
 
-        self._setup_model()
-        # after setup model to ensure correct device in DDP
-        self.current_task_id = 0
-        self.current_task_id_tensor = torch.tensor(
-            self.current_task_id, device=self.device, dtype=torch.int32
-        )
-        self.amp_dtype = torch.float16
         self.train_task_inference_only = train_task_inference_only
         # TODO: Should read from config
         self.num_tasks = 10
@@ -254,6 +247,14 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.cls_cov = dict()
         self.ca_learning_rate = learning_rate  # TODO: use separate lr
         self.reg = 0.01
+
+        self._setup_model()
+        # after setup model to ensure correct device in DDP
+        self.current_task_id = 0
+        self.current_task_id_tensor = torch.tensor(
+            self.current_task_id, device=self.device, dtype=torch.int32
+        )
+        self.amp_dtype = torch.float16
         self.debug = debug
         if self.debug:
             from ..utils.debug import GradPlotter
@@ -293,9 +294,9 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             }
         )
         if hasattr(self.policy_class, "config"):
-            self.replay_buffer_kwargs[
-                "context_len"
-            ] = self.policy_class.config.max_length
+            self.replay_buffer_kwargs["context_len"] = (
+                self.policy_class.config.max_length
+            )
             self.replay_buffer_kwargs["max_len"] = self.policy_class.config.max_ep_len
 
         self.replay_buffer = self.replay_buffer_class(
@@ -310,9 +311,10 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self._setup_prompt_buffer()
         # Temporary replay buffer storing current task's trajectories for compute_mean
         self.temp_replay_buffer = self.temp_replay_buffer_class(
-            self.buffer_size / self.num_tasks,
+            self.buffer_size // self.num_tasks,
             self.observation_space,
             self.action_space,
+            **self.replay_buffer_kwargs,
         )
 
     def _setup_prompt_buffer(self):
@@ -1478,11 +1480,17 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     # TODO: train TAP
                     # Load current task's trajectories
                     # TODO: check can we init buffer mutiple times?
-                    if self.data_paths[self.current_task_id] is not None:
-                        self.replay_buffer.init_buffer_from_dataset(
-                            self.data_paths[self.current_task_id]
+                    if self.data_paths["names"][self.current_task_id] is not None:
+                        single_task_data_path = dict()
+                        single_task_data_path["names"] = [
+                            self.data_paths["names"][self.current_task_id]
+                        ]
+                        single_task_data_path["base"] = self.data_paths["base"]
+
+                        self.temp_replay_buffer.init_buffer_from_dataset(
+                            single_task_data_path
                         )
-                    self.compute_mean()
+                    self.compute_mean_task_wise()
                     self.train_task_adaptive_prediction()
                     self._on_task_switch()
             else:
@@ -1674,11 +1682,11 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
 
     # Compute distribution of representation
     @torch.no_grad()
-    def compute_mean(self):
+    def compute_mean_taskwise(self):
         features_per_tsk = []
         self.policy.eval()
         # compute current task's representation distribution
-        for step in range(10000):  # TODO: read from variable
+        for step in range(11):  # TODO: read from variable 10000
             (
                 observations,
                 actions,  # torch.equal(actions, action_targets) should be True
@@ -1711,7 +1719,10 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     task_id=self.current_task_id_tensor,
                     ddp_kwargs=self.ddp_kwargs,
                 )
-                features = policy_out.last_encoder_output
+                # only use state feature
+                features = policy_out.last_encoder_output[
+                    :, self.policy.tok_to_pos["s"]
+                ].cpu()  # [batch_size, tok_len, seq_len, hidden_size]
                 features_per_tsk.append(features)
         features_per_tsk = torch.cat(features_per_tsk, dim=0)
         if self.ddp:
@@ -1728,7 +1739,10 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         from sklearn.cluster import KMeans
 
         n_clusters = 10  # n_centroids
-        features_per_tsk = torch.cat(features_per_tsk_list, dim=0).cpu().numpy()
+        features_per_tsk = torch.cat(features_per_tsk_list, dim=0)
+        features_per_tsk = (
+            features_per_tsk.reshape(features_per_tsk.shape[0], -1).cpu().numpy()
+        )
         kmeans = KMeans(n_clusters=n_clusters)
         kmeans.fit(features_per_tsk)
         cluster_lables = kmeans.labels_
@@ -1773,7 +1787,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             sampled_data = []
             sampled_label = []
             num_sampled_per_tsk = self.batch_size
-            for i in range(self.current_task_id):
+            for i in range(self.current_task_id + 1):
                 for cluster in range(len(self.tsk_mean[i])):
                     mean = self.tsk_mean[cluster]
                     var = self.tsk_cov[cluster]
@@ -1808,6 +1822,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 tgt = targets[
                     _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
                 ]
+                # inp.reshape(-1, 9, 5, )
                 (
                     state_preds,
                     action_preds,
