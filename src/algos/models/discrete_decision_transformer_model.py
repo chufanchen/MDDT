@@ -334,7 +334,12 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
         return action
 
     def get_predictions(
-        self, x, with_log_probs=False, deterministic=False, task_id=None
+        self,
+        x,
+        with_log_probs=False,
+        deterministic=False,
+        task_id=None,
+        infer_task_id_only=False,
     ):
         action_log_probs, reward_preds, action_logits, entropy, tii_preds = (
             None,
@@ -343,6 +348,11 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
             None,
             None,
         )
+
+        if infer_task_id_only:
+            tii_preds = self.predict_task_id(x)
+            return tii_preds
+
         # x: [batch_size, tokens, context_len, hidden_dim]
         return_preds = self.predict_return(
             x[:, self.tok_to_pred_pos["rtg"]]

@@ -242,7 +242,7 @@ def main(config):
             + "/"
             + config.get("experiment_name", None)
             + "_"
-            + config.get("seed", None)
+            + str(config.get("seed", None))
             + ".zip"
         )
     except Exception as e:

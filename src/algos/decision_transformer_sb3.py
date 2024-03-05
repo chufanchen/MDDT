@@ -1443,11 +1443,11 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.state_std = torch.from_numpy(state_std).to(self.device).float()
 
         self.policy.eval()
-        # Only for debug without pretrain model
+        # Only for debug
         # callback.on_training_start(locals(), globals())
         self.policy.train()
-        # self._record_param_count()
-        # self._dump_logs()
+        self._record_param_count()
+        self._dump_logs()
 
         if self.offline_steps > 0:
             if len(self.replay_buffer) == 0:
@@ -1469,6 +1469,9 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.policy.train()
 
         while self.num_timesteps < total_timesteps:
+            if self.num_timesteps == 1999:
+                # debug
+                print("what happen after 2000")
             if self.offline_steps > 0:
                 rollout = RolloutReturn(0, 0, True)
                 if log_interval is not None and self.num_timesteps % log_interval == 0:
@@ -1490,7 +1493,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         self.temp_replay_buffer.init_buffer_from_dataset(
                             single_task_data_path
                         )
-                    self.compute_mean_task_wise()
+                    self.compute_mean_taskwise()
                     self.train_task_adaptive_prediction()
                     self._on_task_switch()
             else:
@@ -1686,7 +1689,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         features_per_tsk = []
         self.policy.eval()
         # compute current task's representation distribution
-        for step in range(11):  # TODO: read from variable 10000
+        # for step in range(self.steps_per_task):  # TODO: read from variable
+        for step in range(100000):
             (
                 observations,
                 actions,  # torch.equal(actions, action_targets) should be True
@@ -1822,18 +1826,12 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 tgt = targets[
                     _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
                 ]
-                # inp.reshape(-1, 9, 5, )
-                (
-                    state_preds,
-                    action_preds,
-                    action_log_probs,
-                    return_preds,
-                    reward_preds,
-                    action_logits,
-                    entropy,
-                    tii_preds,
-                ) = self.policy.get_predictions(
-                    inp, with_log_probs=False, deterministic=True, task_id=None
+                tii_preds = self.policy.get_predictions(
+                    inp,
+                    with_log_probs=False,
+                    deterministic=True,
+                    task_id=None,
+                    infer_task_id_only=True,
                 )
                 loss = criterion(tii_preds, tgt)
 

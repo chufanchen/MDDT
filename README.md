@@ -215,7 +215,7 @@ python main.py -m experiment_name=cw10_cl_l2m seed=42,43,44 env_params=multi_dom
 #### HiDe-LoRA
 
 ```bash
-python main.py -m experiment_name=cw10_cl_tii seed=42 env_params=multi_domain_ft env_params.eval_env_names=cw10_v2 run_params=finetune_coff eval_params=finetune_md_cl agent_params=cdt_tii_mpdt_disc +agent_params.steps_per_task=100000 agent_params/model_kwargs=mdmpdt_mtdmc_tii agent_params/data_paths=cw10_v2_cwnet_2M +agent_params/replay_buffer_kwargs=mtdmc_ft +agent_params.replay_buffer_kwargs.kind=continual
+python main.py -m experiment_name=cw10_cl_tii seed=42 env_params=multi_domain_ft env_params.eval_env_names=cw10_v2 run_params=finetune_tii eval_params=finetune_md_cl agent_params=cdt_tii_mpdt_disc +agent_params.steps_per_task=100000 agent_params/model_kwargs=mdmpdt_mtdmc_tii agent_params/data_paths=cw10_v2_cwnet_2M +agent_params/replay_buffer_kwargs=mtdmc_ft +agent_params.replay_buffer_kwargs.kind=continual
 ```
 
 ```bash
