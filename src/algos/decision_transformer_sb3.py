@@ -1756,11 +1756,13 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 meters["Acc@1"].append(acc1.item())
                 meters["Acc@5"].append(acc5.item())
 
+        count = len(meters["Loss"])
+
         print(
-            "* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}".format(
-                top1=meters["Acc@1"],
-                top5=meters["Acc@5"],
-                losses=meters["Loss"],
+            "* Acc@1 {top1:.3f} Acc@5 {top5:.3f} loss {losses:.3f}".format(
+                top1=meters["Acc@1"] / count,
+                top5=meters["Acc@5"] / count,
+                losses=meters["Loss"] / count,
             )
         )
         return meters
