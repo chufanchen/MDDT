@@ -1469,9 +1469,6 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.policy.train()
 
         while self.num_timesteps < total_timesteps:
-            if self.num_timesteps == 1999:
-                # debug
-                print("what happen after 2000")
             if self.offline_steps > 0:
                 rollout = RolloutReturn(0, 0, True)
                 if log_interval is not None and self.num_timesteps % log_interval == 0:
@@ -1494,7 +1491,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                             single_task_data_path
                         )
                     self.compute_mean_taskwise()
-                    self.train_task_adaptive_prediction()
+                    if self.current_task_id > 0:
+                        self.train_task_adaptive_prediction()
                     self._on_task_switch()
             else:
                 rollout = self.collect_rollouts(
@@ -1689,8 +1687,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         features_per_tsk = []
         self.policy.eval()
         # compute current task's representation distribution
-        # for step in range(self.steps_per_task):  # TODO: read from variable
-        for step in range(100000):
+        for step in range(self.steps_per_task):  # TODO: read from variable
+            # for step in range(1000):  # 100000 not work on 126
             (
                 observations,
                 actions,  # torch.equal(actions, action_targets) should be True
@@ -1724,11 +1722,13 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     ddp_kwargs=self.ddp_kwargs,
                 )
                 # only use state feature
-                features = policy_out.last_encoder_output[
-                    :, self.policy.tok_to_pos["s"]
-                ].cpu()  # [batch_size, tok_len, seq_len, hidden_size]
+                features = (
+                    policy_out.last_encoder_output[:, self.policy.tok_to_pos["s"]]
+                    .squeeze()
+                    .cpu()
+                )  # [batch_size, tok_len, seq_len, hidden_size] -> [batch_size, seq_len, hidden_size]
                 features_per_tsk.append(features)
-        features_per_tsk = torch.cat(features_per_tsk, dim=0)
+        features_per_tsk = torch.cat(features_per_tsk, dim=0)  # size 10000 carshes
         if self.ddp:
             world_size = int(os.environ["WORLD_SIZE"])
             features_per_tsk_list = [
@@ -1793,8 +1793,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             num_sampled_per_tsk = self.batch_size
             for i in range(self.current_task_id + 1):
                 for cluster in range(len(self.tsk_mean[i])):
-                    mean = self.tsk_mean[cluster]
-                    var = self.tsk_cov[cluster]
+                    mean = self.tsk_mean[i][cluster]
+                    var = self.tsk_cov[i][cluster]
                     if var.mean() == 0:
                         continue
                     m = torch.distributions.multivariate_normal.MultivariateNormal(
@@ -1812,7 +1812,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             sampled_label = torch.tensor(sampled_label).long().to("cuda")
             print(sampled_data.shape)
 
-            inputs = sampled_data
+            inputs = sampled_data  # [num_sampled_per_tsk * cluster, hidden_size]
             targets = sampled_label
 
             shuffled_indexes = torch.randperm(inputs.size(0))
