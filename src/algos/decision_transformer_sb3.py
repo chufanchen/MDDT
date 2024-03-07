@@ -1513,9 +1513,11 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         self.temp_replay_buffer.init_buffer_from_dataset(
                             single_task_data_path
                         )
+                    test_stats_pre_ca = self.evaluate_till_now()
                     self.compute_mean_taskwise()
                     if self.current_task_id > 0:
                         self.train_task_adaptive_prediction()
+                    test_stats = self.evaluate_till_now()
                     self._on_task_switch()
             else:
                 rollout = self.collect_rollouts(
