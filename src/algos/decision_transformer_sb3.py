@@ -48,6 +48,19 @@ from ..schedulers import make_lr_scheduler
 from ..augmentations import make_augmentations
 
 
+def accuracy(output, target, topk=(1,)):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    maxk = min(max(topk), output.size()[1])
+    batch_size = target.size(0)
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.reshape(1, -1).expand_as(pred))
+    return [
+        correct[: min(k, maxk)].reshape(-1).float().sum(0) * 100.0 / batch_size
+        for k in topk
+    ]
+
+
 class DecisionTransformerSb3(OffPolicyAlgorithm):
     def __init__(
         self,
@@ -248,6 +261,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.ca_learning_rate = learning_rate  # TODO: use separate lr
         self.reg = 0.01
 
+        self.acc_matrix = np.zeros((10, 10))  # TODO read from data path
+
         self._setup_model()
         # after setup model to ensure correct device in DDP
         self.current_task_id = 0
@@ -305,8 +320,16 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.action_space,
             **self.replay_buffer_kwargs,
         )
+        # Evaluation replay buffer(duplicate of original replay buffer) for evaluate accuracy till current task
+        self.eval_replay_buffer = self.replay_buffer_class(
+            self.buffer_size,
+            self.observation_space,
+            self.action_space,
+            **self.replay_buffer_kwargs,
+        )
         if self.data_paths is not None:
             self.replay_buffer.init_buffer_from_dataset(self.data_paths)
+            self.eval_replay_buffer.init_buffer_from_dataset(self.data_paths)
         if self.use_prompt_buffer:
             self._setup_prompt_buffer()
         # Temporary replay buffer storing current task's trajectories for compute_mean
@@ -1680,6 +1703,101 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.optimizer = make_optimizer(
                 self.optimizer_kind, params, lr=self.learning_rate
             )
+
+    @torch.no_grad()
+    def evaluate_engine(self):
+        meters = dict()
+        meters["Loss"] = []
+        meters["Acc@1"] = []
+        meters["Acc@5"] = []
+        criterion = torch.nn.CrossEntropyLoss()
+        self.policy.eval()
+
+        with torch.no_grad():
+            for step in range(self.steps_per_task):  # use separate steps: eval_steps
+                (
+                    observations,
+                    actions,  # torch.equal(actions, action_targets) should be True
+                    next_observations,
+                    rewards,
+                    rewards_to_go,
+                    timesteps,
+                    attention_mask,
+                    dones,
+                    task_ids,  # [batch_size]
+                    trj_ids,
+                    action_targets,  # [batch_size, context_length, action_tokens]
+                    action_mask,  # mask out padding action tokens
+                    prompt,  # None if not use prompt buffer
+                ) = self.sample_batch(self.batch_size)
+                with torch.autocast(
+                    device_type="cuda", dtype=self.amp_dtype, enabled=self.use_amp
+                ):
+                    policy_output = self.policy(
+                        states=observations,
+                        actions=actions,
+                        rewards=rewards,
+                        returns_to_go=rewards_to_go,
+                        timesteps=timesteps.long(),
+                        attention_mask=attention_mask,
+                        return_dict=True,
+                        with_log_probs=self.stochastic_policy,
+                        deterministic=False,
+                        prompt=prompt,
+                        task_id=self.current_task_id_tensor,
+                        ddp_kwargs=self.ddp_kwargs,
+                    )
+                tii_preds = policy_output.tii_preds
+                loss = criterion(tii_preds, task_ids)
+                acc1, acc5 = accuracy(tii_preds, task_ids, topk=(1, 5))
+                meters["Loss"].append(loss.item())
+                meters["Acc@1"].append(acc1.item())
+                meters["Acc@5"].append(acc5.item())
+
+        print(
+            "* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}".format(
+                top1=meters["Acc@1"],
+                top5=meters["Acc@5"],
+                losses=meters["Loss"],
+            )
+        )
+        return meters
+
+    @torch.no_grad()
+    def evaluate_till_now(self):
+        num_tasks = 10  # TODO Read from data_path
+        stat_matrix = np.zeros((3, num_tasks))  # 3 for Acc@1, Acc@5
+        for i in range(self.current_task_id + 1):
+            test_stats = self.evaluate_engine()
+            stat_matrix[0, i] = test_stats["Acc@1"]
+            stat_matrix[1, i] = test_stats["Acc@5"]
+            stat_matrix[2, i] = test_stats["Loss"]
+            self.acc_matrix[i, self.current_task_id] = test_stats["Acc@1"]
+
+        avg_stat = np.divide(np.sum(stat_matrix, axis=1), self.current_task_id + 1)
+        diagonal = np.diag(self.acc_matrix)
+
+        result_str = "[Average accuracy till task{}]\tAcc@1: {:.4f}\tAcc@5: {:.4f}\tLoss: {:.4f}".format(
+            self.current_task_id + 1, avg_stat[0], avg_stat[1], avg_stat[2]
+        )
+
+        if self.current_task_id > 0:
+            forgetting = np.mean(
+                (
+                    np.max(self.acc_matrix, axis=1)
+                    - self.acc_matrix[:, self.current_task_id]
+                )[: self.current_task_id]
+            )
+            backward = np.mean(
+                (self.acc_matrix[:, self.current_task_id] - diagonal)[
+                    : self.current_task_id
+                ]
+            )
+
+            result_str += "\tForgetting: {:.4f}\tBackward: {:.4f}".format(
+                forgetting, backward
+            )
+        print(result_str)
 
     # Compute distribution of representation
     @torch.no_grad()
