@@ -1,7 +1,7 @@
-LOG_DIR: /home/lab304/ccf/logs
-DATA_DIR: /home/lab304/ccf/data
-SSD_DATA_DIR: /home/lab304/ccf/data
-MODELS_DIR: /home/lab304/ccf/models
+LOG_DIR: /home/lab304/mddt/logs
+DATA_DIR: /home/lab304/mddt/data
+SSD_DATA_DIR: /home/lab304/mddt/data
+MODELS_DIR: /home/lab304/mddt/models
 
 # directory creation is handled by Hydra
 hydra:

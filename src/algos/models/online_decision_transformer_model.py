@@ -465,6 +465,7 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
             with_log_probs=with_log_probs,
             deterministic=deterministic,
             task_id=task_id if self.num_task_heads != 1 else None,
+            infer_task_id_only=False,
         )
 
         if not return_dict:
@@ -893,8 +894,8 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
             prompt_inputs,
             attention_mask=stacked_attention_mask,
             task_id=task_id,
-            train=True,  # TODO:Use variable here
             tok_to_pos=self.tok_to_pos,
+            train=True,  # TODO:Use variable here
         )
         if prompt_output is None:
             return None

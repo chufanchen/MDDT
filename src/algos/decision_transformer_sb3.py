@@ -330,7 +330,9 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             **self.replay_buffer_kwargs,
         )
         if self.data_paths is not None:
-            self.replay_buffer.init_buffer_from_dataset(self.data_paths)
+            self.replay_buffer.init_buffer_from_dataset(
+                self.data_paths
+            )  # Extract trajectories: # of transitions; Storing trajectories: # of trajectories
             self.eval_replay_buffer.init_buffer_from_dataset(self.data_paths)
         if self.use_prompt_buffer:
             self._setup_prompt_buffer()
@@ -1479,7 +1481,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.state_std = torch.from_numpy(state_std).to(self.device).float()
 
         self.policy.eval()
-        # callback.on_training_start(locals(), globals())
+        callback.on_training_start(locals(), globals())
         self.policy.train()
         self._record_param_count()
         self._dump_logs()
@@ -1515,24 +1517,24 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     # TODO: train TAP
                     # Load current task's trajectories
                     # TODO: check can we init buffer mutiple times?
-
-                    if self.data_paths["names"][self.current_task_id] is not None:
-                        single_task_data_path = dict()
-                        single_task_data_path["names"] = [
-                            self.data_paths["names"][self.current_task_id]
-                        ]
-                        single_task_data_path["base"] = self.data_paths["base"]
-                        del self.temp_replay_buffer
-                        self.temp_replay_buffer = self.temp_replay_buffer_class(
-                            self.buffer_size // self.num_tasks,
-                            self.observation_space,
-                            self.action_space,
-                            **self.replay_buffer_kwargs,
-                        )
-                        self.temp_replay_buffer.init_buffer_from_dataset(
-                            single_task_data_path
-                        )
                     if self.train_task_inference_only:
+                        if self.data_paths["names"][self.current_task_id] is not None:
+                            single_task_data_path = dict()
+                            single_task_data_path["names"] = [
+                                self.data_paths["names"][self.current_task_id]
+                            ]
+                            single_task_data_path["base"] = self.data_paths["base"]
+                            del self.temp_replay_buffer
+                            self.temp_replay_buffer = self.temp_replay_buffer_class(
+                                self.buffer_size // self.num_tasks,
+                                self.observation_space,
+                                self.action_space,
+                                **self.replay_buffer_kwargs,
+                            )
+                            self.temp_replay_buffer.init_buffer_from_dataset(
+                                single_task_data_path
+                            )
+
                         print("Before tap: ")
                         test_stats_pre_ca = self.evaluate_till_now()
                         self.compute_mean_taskwise()
