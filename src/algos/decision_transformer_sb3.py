@@ -1239,6 +1239,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     rewards_to_go=prompt.rewards_to_go / self.reward_scale,
                     rewards=prompt.rewards / self.reward_scale,
                 )
+        np.all(task_ids == self.current_task_id)
         return (
             observations,
             actions,
@@ -1478,7 +1479,6 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.state_std = torch.from_numpy(state_std).to(self.device).float()
 
         self.policy.eval()
-        # Only for debug
         # callback.on_training_start(locals(), globals())
         self.policy.train()
         self._record_param_count()
@@ -1521,13 +1521,21 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                             self.data_paths["names"][self.current_task_id]
                         ]
                         single_task_data_path["base"] = self.data_paths["base"]
-
+                        del self.temp_replay_buffer
+                        self.temp_replay_buffer = self.temp_replay_buffer_class(
+                            self.buffer_size // self.num_tasks,
+                            self.observation_space,
+                            self.action_space,
+                            **self.replay_buffer_kwargs,
+                        )
                         self.temp_replay_buffer.init_buffer_from_dataset(
                             single_task_data_path
                         )
+                    print("Before tap: ")
                     test_stats_pre_ca = self.evaluate_till_now()
                     self.compute_mean_taskwise()
                     self.train_task_adaptive_prediction()
+                    print("After tap: ")
                     test_stats = self.evaluate_till_now()
                     self._on_task_switch()
             else:
@@ -1801,7 +1809,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         diagonal = np.diag(self.acc_matrix)
 
         result_str = "[Average accuracy till task{}]\tAcc@1: {:.4f}\tAcc@5: {:.4f}\tLoss: {:.4f}".format(
-            self.current_task_id + 1, avg_stat[0], avg_stat[1], avg_stat[2]
+            self.current_task_id, avg_stat[0], avg_stat[1], avg_stat[2]
         )
 
         if self.current_task_id > 0:
