@@ -1239,7 +1239,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     rewards_to_go=prompt.rewards_to_go / self.reward_scale,
                     rewards=prompt.rewards / self.reward_scale,
                 )
-        np.all(task_ids == self.current_task_id)
+        np.all(task_ids.cpu().numpy() == self.current_task_id)
         return (
             observations,
             actions,
@@ -1515,6 +1515,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     # TODO: train TAP
                     # Load current task's trajectories
                     # TODO: check can we init buffer mutiple times?
+
                     if self.data_paths["names"][self.current_task_id] is not None:
                         single_task_data_path = dict()
                         single_task_data_path["names"] = [
@@ -1531,12 +1532,13 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         self.temp_replay_buffer.init_buffer_from_dataset(
                             single_task_data_path
                         )
-                    print("Before tap: ")
-                    test_stats_pre_ca = self.evaluate_till_now()
-                    self.compute_mean_taskwise()
-                    self.train_task_adaptive_prediction()
-                    print("After tap: ")
-                    test_stats = self.evaluate_till_now()
+                    if self.train_task_inference_only:
+                        print("Before tap: ")
+                        test_stats_pre_ca = self.evaluate_till_now()
+                        self.compute_mean_taskwise()
+                        self.train_task_adaptive_prediction()
+                        print("After tap: ")
+                        test_stats = self.evaluate_till_now()
                     self._on_task_switch()
             else:
                 rollout = self.collect_rollouts(
