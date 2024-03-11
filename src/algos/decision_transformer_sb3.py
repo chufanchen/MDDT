@@ -142,6 +142,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         freeze_kwargs=None,
         lr_sched_kwargs=None,
         train_task_inference_only=None,
+        eval_tii_steps=None,
     ):
         super().__init__(
             policy,
@@ -251,6 +252,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.rollout_buffer = {}
 
         self.train_task_inference_only = train_task_inference_only
+        self.eval_tii_steps = eval_tii_steps
         # TODO: Should read from config
         self.num_tasks = 10
         self.temp_replay_buffer_class = TrajectoryReplayBuffer
@@ -1135,7 +1137,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 ent_tuning = False
 
             # TODO: compute loss + update TII
-
+            if self.train_task_inference_only:
+                print("train tii...")
             # compute loss + update
             loss_dict = self.update_policy(
                 policy_output,
@@ -1151,6 +1154,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 next_states=next_observations,
                 action_mask=action_mask,
             )
+            if self.train_task_inference_only:
+                print("tii loss: {}".format(loss_dict["loss_tii"]))
             for k, v in loss_dict.items():
                 metrics[k].append(v)
 
@@ -1171,9 +1176,16 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
         self._record_metrics_from_dict(metrics, prefix="train")
 
-    def sample_batch(self, batch_size, use_temp=False):
+    def sample_batch(self, batch_size, use_temp=False, use_eval=False):
         if use_temp:
             replay_data = self.temp_replay_buffer.sample(
+                batch_size=batch_size,
+                weight_by=self.buffer_weight_by,
+                env=self._vec_normalize_env,
+                top_k=self.buffer_topk,
+            )
+        elif use_eval:
+            replay_data = self.eval_replay_buffer.sample(
                 batch_size=batch_size,
                 weight_by=self.buffer_weight_by,
                 env=self._vec_normalize_env,
@@ -1515,8 +1527,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         )
                     test_stats_pre_ca = self.evaluate_till_now()
                     self.compute_mean_taskwise()
-                    if self.current_task_id > 0:
-                        self.train_task_adaptive_prediction()
+                    self.train_task_adaptive_prediction()
                     test_stats = self.evaluate_till_now()
                     self._on_task_switch()
             else:
@@ -1538,7 +1549,6 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 and self.buffer_reinit_percent is not None
             ):
                 buffer_reinit = False
-                print("only for debug: should not print")
                 self.replay_buffer.reset(self.buffer_reinit_percent)
             if (
                 self.num_timesteps > 0
@@ -1716,7 +1726,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.policy.eval()
 
         with torch.no_grad():
-            for step in range(self.steps_per_task):  # use separate steps: eval_steps
+            for step in range(self.eval_tii_steps):  # use separate steps: eval_steps
                 (
                     observations,
                     actions,  # torch.equal(actions, action_targets) should be True
@@ -1731,7 +1741,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     action_targets,  # [batch_size, context_length, action_tokens]
                     action_mask,  # mask out padding action tokens
                     prompt,  # None if not use prompt buffer
-                ) = self.sample_batch(self.batch_size)
+                ) = self.sample_batch(self.batch_size, use_eval=True)
                 with torch.autocast(
                     device_type="cuda", dtype=self.amp_dtype, enabled=self.use_amp
                 ):
@@ -1757,15 +1767,24 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 meters["Acc@5"].append(acc5.item())
 
         count = len(meters["Loss"])
-
+        top1 = 0
+        top5 = 0
+        losses = 0
+        for i in range(count):
+            top1 += meters["Acc@1"][i]
+            top5 += meters["Acc@5"][i]
+            losses += meters["Loss"][i]
+        top1 /= count
+        top5 /= count
+        losses /= count
         print(
-            "* Acc@1 {top1:.3f} Acc@5 {top5:.3f} loss {losses:.3f}".format(
-                top1=meters["Acc@1"] / count,
-                top5=meters["Acc@5"] / count,
-                losses=meters["Loss"] / count,
+            "* Acc@1 {:.3f} Acc@5 {:.3f} loss {:.3f}".format(
+                top1,
+                top5,
+                losses,
             )
         )
-        return meters
+        return {"Acc@1": top1, "Acc@5": top5, "Loss": losses}
 
     @torch.no_grad()
     def evaluate_till_now(self):
@@ -1809,7 +1828,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         features_per_tsk = []
         self.policy.eval()
         # compute current task's representation distribution
-        for step in range(self.steps_per_task):  # TODO: read from variable
+        for step in range(self.steps_per_task // 10):  # TODO: read from variable
             # for step in range(1000):  # 100000 not work on 126
             (
                 observations,
@@ -1932,7 +1951,6 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
 
             sampled_data = torch.cat(sampled_data, dim=0).float().to("cuda")
             sampled_label = torch.tensor(sampled_label).long().to("cuda")
-            print(sampled_data.shape)
 
             inputs = sampled_data  # [num_sampled_per_tsk * cluster, hidden_size]
             targets = sampled_label

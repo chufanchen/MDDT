@@ -264,6 +264,7 @@ class UDT(DecisionTransformerSb3):
         action_mask=None,
     ):
         if self.train_task_inference_only:
+            print("compute tii loss...")
             tii_loss, tii_loss_dict = self.compute_tii_loss(
                 policy_output,
                 action_targets,

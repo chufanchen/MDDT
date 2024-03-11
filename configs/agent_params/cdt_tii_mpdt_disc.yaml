@@ -6,6 +6,7 @@ batch_size: 256
 gradient_steps: 1
 stochastic_policy: False
 train_task_inference_only: True
+eval_tii_steps: 1000
 loss_fn: "ce"
 eval_context_len: 5
 ent_coef: 0.0
