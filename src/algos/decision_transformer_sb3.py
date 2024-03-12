@@ -1139,8 +1139,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 ent_tuning = False
 
             # TODO: compute loss + update TII
-            if self.train_task_inference_only:
-                print("train tii...")
+            # if self.train_task_inference_only:
+            #     print("train tii...")
             # compute loss + update
             loss_dict = self.update_policy(
                 policy_output,
@@ -1156,8 +1156,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 next_states=next_observations,
                 action_mask=action_mask,
             )
-            if self.train_task_inference_only:
-                print("tii loss: {}".format(loss_dict["loss_tii"]))
+            # if self.train_task_inference_only:
+            #     print("tii loss: {}".format(loss_dict["loss_tii"]))
             for k, v in loss_dict.items():
                 metrics[k].append(v)
 
@@ -1537,7 +1537,10 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
 
                         print("Before tap: ")
                         test_stats_pre_ca = self.evaluate_till_now()
-                        self.compute_mean_taskwise()
+                        if self.train_task_inference_only:
+                            self.compute_mean_taskwise()
+                        else:
+                            self.compute_mean_classwise()
                         self.train_task_adaptive_prediction()
                         print("After tap: ")
                         test_stats = self.evaluate_till_now()
@@ -1803,6 +1806,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         num_tasks = 10  # TODO Read from data_path
         stat_matrix = np.zeros((3, num_tasks))  # 3 for Acc@1, Acc@5
         for i in range(self.current_task_id + 1):
+            self.eval_replay_buffer.set_task_id(i)
             test_stats = self.evaluate_engine()
             stat_matrix[0, i] = test_stats["Acc@1"]
             stat_matrix[1, i] = test_stats["Acc@5"]
@@ -1937,29 +1941,53 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             optimizer=self.tap_optimizer, T_max=run_epochs
         )
         criterion = torch.nn.CrossEntropyLoss().to("cuda")
-
-        crct_num = self.current_task_id + 1
+        if self.train_task_inference_only:
+            crct_num = self.current_task_id + 1
+        else:
+            crct_num = 64  # TODO: read from config
         for epoch in range(run_epochs):
             # Sample pseduo sample from representation
             sampled_data = []
             sampled_label = []
-            num_sampled_per_tsk = self.batch_size
+            num_sampled_per_cls = num_sampled_per_tsk = self.batch_size
             for i in range(self.current_task_id + 1):
-                for cluster in range(len(self.tsk_mean[i])):
-                    mean = self.tsk_mean[i][cluster]
-                    var = self.tsk_cov[i][cluster]
-                    if var.mean() == 0:
-                        continue
-                    m = torch.distributions.multivariate_normal.MultivariateNormal(
-                        mean.float(),
-                        (
-                            torch.diag(var)
-                            + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)
-                        ).float(),
-                    )
-                    sampled_data_single = m.sample(sample_shape=(num_sampled_per_tsk,))
-                    sampled_data.append(sampled_data_single)
-                    sampled_label.extend([i] * num_sampled_per_tsk)
+                if self.train_task_inference_only:
+                    for cluster in range(len(self.tsk_mean[i])):
+                        mean = self.tsk_mean[i][cluster]
+                        var = self.tsk_cov[i][cluster]
+                        if var.mean() == 0:
+                            continue
+                        m = torch.distributions.multivariate_normal.MultivariateNormal(
+                            mean.float(),
+                            (
+                                torch.diag(var)
+                                + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)
+                            ).float(),
+                        )
+                        sampled_data_single = m.sample(
+                            sample_shape=(num_sampled_per_tsk,)
+                        )
+                        sampled_data.append(sampled_data_single)
+                        sampled_label.extend([i] * num_sampled_per_tsk)
+                else:
+                    for c_id in range(64):
+                        for cluster in range(len(self.cls_mean[c_id])):
+                            mean = self.cls_mean[c_id][cluster]
+                            var = self.cls_cov[c_id][cluster]
+                            if var.mean() == 0:
+                                continue
+                            m = torch.distributions.multivariate_normal.MultivariateNormal(
+                                mean.float(),
+                                (
+                                    torch.diag(var)
+                                    + 1e-4 * torch.eye(mean.shape[0]).to(mean.device)
+                                ).float(),
+                            )
+                            sampled_data_single = m.sample(
+                                sample_shape=(num_sampled_per_cls,)
+                            )
+                            sampled_data.append(sampled_data_single)
+                            sampled_label.extend([c_id] * num_sampled_per_cls)
 
             sampled_data = torch.cat(sampled_data, dim=0).float().to("cuda")
             sampled_label = torch.tensor(sampled_label).long().to("cuda")
@@ -1972,20 +2000,39 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             targets = targets[shuffled_indexes]
 
             for _iter in range(crct_num):
-                inp = inputs[
-                    _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
-                ]
-                tgt = targets[
-                    _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
-                ]
-                tii_preds = self.policy.get_predictions(
-                    inp,
-                    with_log_probs=False,
-                    deterministic=True,
-                    task_id=None,
-                    infer_task_id_only=True,
-                )
-                loss = criterion(tii_preds, tgt)
+                if self.train_task_inference_only:
+                    inp = inputs[
+                        _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
+                    ]
+                    tgt = targets[
+                        _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
+                    ]
+                    tii_preds = self.policy.get_predictions(
+                        inp,  # state features -> tii predictions
+                        with_log_probs=False,
+                        deterministic=True,
+                        task_id=None,
+                        infer_task_id_only=True,
+                    )
+                    logits = tii_preds
+                    loss = criterion(tii_preds, tgt)
+                else:
+                    inp = inputs[
+                        _iter * num_sampled_per_cls : (_iter + 1) * num_sampled_per_cls
+                    ]
+                    tgt = targets[
+                        _iter * num_sampled_per_cls : (_iter + 1) * num_sampled_per_cls
+                    ]
+                    logits = self.policy.get_predictions(
+                        inp,  # whole features
+                        with_log_probs=False,
+                        deterministic=True,
+                        task_id=None,
+                    )
+                    # TODO: should we exclude tii_preds?
+                    loss = criterion(logits, tgt)
+
+                acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
                 if not math.isfinite(loss.item()):
                     print("Loss is {}, stopping training".format(loss.item()))
@@ -1995,6 +2042,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 loss.backward()
                 self.tap_optimizer.step()
                 torch.cuda.synchronize()
+            # TODO: print metrics
             self.tap_scheduler.step()
 
     def orth_loss(self, features, targets):

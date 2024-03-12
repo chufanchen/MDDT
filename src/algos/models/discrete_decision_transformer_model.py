@@ -340,6 +340,7 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
         deterministic=False,
         task_id=None,
         infer_task_id_only=False,
+        infer_action_only=False,
     ):
         action_log_probs, reward_preds, action_logits, entropy, tii_preds = (
             None,
@@ -367,6 +368,8 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
             action_logits,
             entropy,
         ) = self.action_log_prob_logits(x_actions)
+        if infer_action_only:
+            return action_logits  # TODO: check which should be used
         if self.reward_condition:
             reward_preds = self.predict_reward(x[:, self.tok_to_pred_pos["r"]])
 

@@ -31,6 +31,7 @@ class OnlineDecisionTransformerOutput(DecisionTransformerOutput):
     last_encoder_output: torch.FloatTensor = None
     prompt_infos: dict = None
     cross_attentions: torch.FloatTensor = None
+    tii_preds: torch.FloatTensor = None
 
 
 class OnlineDecisionTransformerModel(DecisionTransformerModel):
@@ -901,7 +902,7 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
         prompt_stacked_inputs, prompt_infos = (
             prompt_output["prompt"],
             prompt_output["infos"],
-        )  # if hide_lora: return n_layer's A B [n_layer, hidden_dim, hidden_dim]
+        )  # if hide_lora: return n_layer's A B [length, hidden_dim, hidden_dim]
 
         # make attn mask
         # prompt stacked inputs can be None, in case we do pre-training of keys and don't want to have prompt

@@ -44,6 +44,7 @@ class HiDeLoRAPool(Prompt):
         if mod_ff:
             # mlp is 4 * embed_dim
             length += 4
+        self.length = length
         self.mod_q = mod_q
         self.mod_v = mod_v
         self.mod_k = mod_k
@@ -84,6 +85,7 @@ class HiDeLoRAPool(Prompt):
         # idx: [batch_size x 1]
         # lora_a_batched: [batch_size x n_layer x length x embed_dim x rank]
         # lora_b_batched: [batch_size x n_layer x length x rank x embed_dim]
+        idx = torch.unsqueeze(torch.unsqueeze(idx, 0), 0).type(torch.int64)
         lora_a_batched = self.lora_a[idx].squeeze(1)
         lora_b_batched = self.lora_b[idx].squeeze(1)
         matrices = []
