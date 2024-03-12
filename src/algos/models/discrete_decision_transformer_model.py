@@ -299,11 +299,11 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
             action_logits = self.action_net(x_latent)
             action = self.get_action_from_logits(action_logits)
             return action, None, action_logits, None
-        # in ims: batch_size x context_len x tf_hidden_dim
+        # in dims: batch_size x context_len x tf_hidden_dim
         batch_size, context_len = x_latent.shape[0], x_latent.shape[1]
         # dims:  batch_size x context_len x action_net_hidden_dim
         action_logits = self.action_net(x_latent)
-        # dims: batch_size * context_len x action_net_hidden_dim
+        # dims: batch_size x (context_len x action_net_hidden_dim)
         action_logits = action_logits.reshape(
             -1, self.action_channels * self.config.act_dim
         )

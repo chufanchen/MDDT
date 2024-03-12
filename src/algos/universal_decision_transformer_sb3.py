@@ -347,6 +347,12 @@ class UDT(DecisionTransformerSb3):
             loss_dict["loss_actions"] = loss.item()
             loss = self.compute_prompt_loss(loss, policy_output)
 
+        if self.train_wtp_and_tap:
+            loss += self.orth_loss(
+                policy_output.action_logits,  # [batch_size, context_len, tokens_for_pred_a, action_bin]
+                action_targets,
+            )
+
         # overwrite previously stored loss
         loss_dict["loss"] = loss.item()
         return loss, loss_dict
@@ -616,6 +622,7 @@ class UDT(DecisionTransformerSb3):
         else:
             if self.loss_fn_type == "ce" or self.loss_fn_type == "dist_ce":
                 action_logits = policy_output.action_logits
+                # [batch_size, context_length, act_dim, logits_hidden_size]
                 act_dim, logits_latent_dim = (
                     action_logits.shape[2],
                     action_logits.shape[3],

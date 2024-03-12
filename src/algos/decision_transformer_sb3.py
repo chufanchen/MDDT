@@ -142,6 +142,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         freeze_kwargs=None,
         lr_sched_kwargs=None,
         train_task_inference_only=None,
+        train_wtp_and_tap=None,
         eval_tii_steps=None,
     ):
         super().__init__(
@@ -252,6 +253,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.rollout_buffer = {}
 
         self.train_task_inference_only = train_task_inference_only
+        self.train_wtp_and_tap = train_wtp_and_tap
         self.eval_tii_steps = eval_tii_steps
         # TODO: Should read from config
         self.num_tasks = 10
@@ -1481,7 +1483,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.state_std = torch.from_numpy(state_std).to(self.device).float()
 
         self.policy.eval()
-        callback.on_training_start(locals(), globals())
+        # callback.on_training_start(locals(), globals())
         self.policy.train()
         self._record_param_count()
         self._dump_logs()
@@ -1517,7 +1519,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     # TODO: train TAP
                     # Load current task's trajectories
                     # TODO: check can we init buffer mutiple times?
-                    if self.train_task_inference_only:
+                    if self.train_task_inference_only or self.train_wtp_and_tap:
                         if self.data_paths["names"][self.current_task_id] is not None:
                             single_task_data_path = dict()
                             single_task_data_path["names"] = [
@@ -1539,7 +1541,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         test_stats_pre_ca = self.evaluate_till_now()
                         if self.train_task_inference_only:
                             self.compute_mean_taskwise()
-                        else:
+                        elif self.train_wtp_and_tap:
                             self.compute_mean_classwise()
                         self.train_task_adaptive_prediction()
                         print("After tap: ")
@@ -1774,9 +1776,25 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         task_id=self.current_task_id_tensor,
                         ddp_kwargs=self.ddp_kwargs,
                     )
-                tii_preds = policy_output.tii_preds
-                loss = criterion(tii_preds, task_ids)
-                acc1, acc5 = accuracy(tii_preds, task_ids, topk=(1, 5))
+                if self.train_task_inference_only:
+                    tii_preds = policy_output.tii_preds
+                    loss = criterion(tii_preds, task_ids)
+                    acc1, acc5 = accuracy(tii_preds, task_ids, topk=(1, 5))
+                else:
+                    loss, loss_dict = self.compute_policy_loss(
+                        policy_output,
+                        action_targets,
+                        attention_mask,
+                        ent_coef=0,
+                        ent_tuning=False,
+                        return_targets=rewards_to_go,
+                        reward_targets=rewards,
+                        state_targets=observations,
+                        dones=dones.float(),
+                        timesteps=timesteps,
+                        next_states=next_observations,
+                        action_mask=action_mask,
+                    )
                 meters["Loss"].append(loss.item())
                 meters["Acc@1"].append(acc1.item())
                 meters["Acc@5"].append(acc5.item())
@@ -1885,7 +1903,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     .cpu()
                 )  # [batch_size, tok_len, seq_len, hidden_size] -> [batch_size, seq_len, hidden_size]
                 features_per_tsk.append(features)
-        features_per_tsk = torch.cat(features_per_tsk, dim=0)  # size 10000 carshes
+        features_per_tsk = torch.cat(features_per_tsk, dim=0)  # size 10000 crashes
         if self.ddp:
             world_size = int(os.environ["WORLD_SIZE"])
             features_per_tsk_list = [
@@ -1968,7 +1986,9 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                             sample_shape=(num_sampled_per_tsk,)
                         )
                         sampled_data.append(sampled_data_single)
-                        sampled_label.extend([i] * num_sampled_per_tsk)
+                        sampled_label.extend(
+                            [i] * num_sampled_per_tsk
+                        )  # TODO: check shape
                 else:
                     for c_id in range(64):
                         for cluster in range(len(self.cls_mean[c_id])):
@@ -1987,7 +2007,9 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                                 sample_shape=(num_sampled_per_cls,)
                             )
                             sampled_data.append(sampled_data_single)
-                            sampled_label.extend([c_id] * num_sampled_per_cls)
+                            sampled_label.extend(
+                                [c_id] * num_sampled_per_cls
+                            )  # TODO: check shape
 
             sampled_data = torch.cat(sampled_data, dim=0).float().to("cuda")
             sampled_label = torch.tensor(sampled_label).long().to("cuda")
@@ -2007,7 +2029,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     tgt = targets[
                         _iter * num_sampled_per_tsk : (_iter + 1) * num_sampled_per_tsk
                     ]
-                    tii_preds = self.policy.get_predictions(
+                    tii_preds = self.policy.get_predictions(  # TODO: double check this, should we reshape first dims?
                         inp,  # state features -> tii predictions
                         with_log_probs=False,
                         deterministic=True,
@@ -2028,6 +2050,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         with_log_probs=False,
                         deterministic=True,
                         task_id=None,
+                        infer_action_only=True,
                     )
                     # TODO: should we exclude tii_preds?
                     loss = criterion(logits, tgt)
@@ -2046,6 +2069,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.tap_scheduler.step()
 
     def orth_loss(self, features, targets):
+        features = features.reshape(features.shape[0] * features.shape[1], -1)
+        # [batch_size x context_len, tokens_for_pred_a x action_bin]
         if self.cls_mean:
             # orth loss of this batch
             sample_mean = []
