@@ -15,6 +15,7 @@ class Prompt(nn.Module):
         input_type="s_rtg_a_r",
         prefix=False,
         pretrain=False,
+        **kwargs,
     ):
         super().__init__()
         self.length = length

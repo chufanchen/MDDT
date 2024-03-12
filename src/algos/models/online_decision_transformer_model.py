@@ -895,7 +895,6 @@ class OnlineDecisionTransformerModel(DecisionTransformerModel):
             attention_mask=stacked_attention_mask,
             task_id=task_id,
             tok_to_pos=self.tok_to_pos,
-            train=True,  # TODO:Use variable here
         )
         if prompt_output is None:
             return None
