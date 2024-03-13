@@ -622,7 +622,7 @@ class UDT(DecisionTransformerSb3):
         else:
             if self.loss_fn_type == "ce" or self.loss_fn_type == "dist_ce":
                 action_logits = policy_output.action_logits
-                # [batch_size, context_length, act_dim, logits_hidden_size]
+                # [batch_size, context_length, act_dim, act_bin]
                 act_dim, logits_latent_dim = (
                     action_logits.shape[2],
                     action_logits.shape[3],
@@ -650,7 +650,7 @@ class UDT(DecisionTransformerSb3):
                     if self.policy.tokenize_a and is_continuous_action
                     else action_targets.long()
                 )
-                # shape: [batch_size x context_len x act_dim x latent_dim] (before masking)
+                # shape: [batch_size x context_len, act_dim, latent_dim] (before masking)
                 action_logits = action_logits.reshape(-1, act_dim, logits_latent_dim)[
                     attention_mask.reshape(-1) > 0
                 ]

@@ -76,3 +76,5 @@ batch_size: 256
 - task_id: [256]
 - trj_id: [256]
 - action_mask: [256,5,6]
+
+One difference between rl and cv is the action has multiple tokens.

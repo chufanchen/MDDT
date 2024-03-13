@@ -353,7 +353,16 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
         if infer_task_id_only:
             tii_preds = self.predict_task_id(x)
             return tii_preds
-
+        if infer_action_only:
+            (
+                action_preds,
+                action_log_probs,
+                action_logits,
+                entropy,
+            ) = self.action_log_prob_logits(
+                x.reshape(x.shape[0], -1, self.hidden_size)
+            )  # input: [batch_size, tokens_for_pred_a, hidden_size]
+            return action_logits  # TODO: check which should be used
         # x: [batch_size, tokens, context_len, hidden_dim]
         return_preds = self.predict_return(
             x[:, self.tok_to_pred_pos["rtg"]]
@@ -361,15 +370,16 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
         state_preds = self.predict_state(
             x[:, self.tok_to_pred_pos["s"]]
         )  # predict next state given state and action
-        x_actions = x[:, self.tok_to_pred_pos["a"]].permute(0, 2, 1, 3)
+        x_actions = x[:, self.tok_to_pred_pos["a"]].permute(
+            0, 2, 1, 3
+        )  # [batch_size, context_len, tok_to_pred_a, hidden_size]
         (
             action_preds,
             action_log_probs,
             action_logits,
             entropy,
         ) = self.action_log_prob_logits(x_actions)
-        if infer_action_only:
-            return action_logits  # TODO: check which should be used
+
         if self.reward_condition:
             reward_preds = self.predict_reward(x[:, self.tok_to_pred_pos["r"]])
 

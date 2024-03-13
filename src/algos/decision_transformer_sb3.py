@@ -262,6 +262,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.tsk_cov = dict()
         self.cls_mean = dict()
         self.cls_cov = dict()
+        self.features_per_cls = dict()
         self.ca_learning_rate = learning_rate  # TODO: use separate lr
         self.reg = 0.01
 
@@ -1780,6 +1781,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     tii_preds = policy_output.tii_preds
                     loss = criterion(tii_preds, task_ids)
                     acc1, acc5 = accuracy(tii_preds, task_ids, topk=(1, 5))
+                    acc1 = acc1.item()
+                    acc5 = acc5.item()
                 else:
                     loss, loss_dict = self.compute_policy_loss(
                         policy_output,
@@ -1795,9 +1798,10 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         next_states=next_observations,
                         action_mask=action_mask,
                     )
+                    acc1, acc5 = loss_dict["action_acc"], loss_dict["action_acc_top5"]
                 meters["Loss"].append(loss.item())
-                meters["Acc@1"].append(acc1.item())
-                meters["Acc@5"].append(acc5.item())
+                meters["Acc@1"].append(acc1)
+                meters["Acc@5"].append(acc5)
 
         count = len(meters["Loss"])
         top1 = 0
@@ -1822,7 +1826,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
     @torch.no_grad()
     def evaluate_till_now(self):
         num_tasks = 10  # TODO Read from data_path
-        stat_matrix = np.zeros((3, num_tasks))  # 3 for Acc@1, Acc@5
+        stat_matrix = np.zeros((3, num_tasks))  # 3 for Acc@1, Acc@5, Loss
         for i in range(self.current_task_id + 1):
             self.eval_replay_buffer.set_task_id(i)
             test_stats = self.evaluate_engine()
@@ -1855,6 +1859,93 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 forgetting, backward
             )
         print(result_str)
+
+    # Compute distribution of representation
+    @torch.no_grad()
+    def compute_mean_classwise(self):
+        features_per_cls_val = []
+        self.policy.eval()
+        # compute current task's representation distribution
+        for step in range(self.steps_per_task // 10):  # TODO: read from variable
+            # for step in range(1000):  # 100000 not work on 126
+            (
+                observations,
+                actions,  # torch.equal(actions, action_targets) should be True
+                next_observations,
+                rewards,
+                rewards_to_go,
+                timesteps,
+                attention_mask,
+                dones,
+                task_ids,  # [batch_size]
+                trj_ids,
+                action_targets,  # [batch_size, context_length, action_tokens]
+                action_mask,  # mask out padding action tokens
+                prompt,  # None if not use prompt buffer
+            ) = self.sample_batch(self.batch_size, use_temp=True)
+            actions_val = (  # [batch_size x context_len, action_tokens]
+                actions.reshape(-1, actions.shape[-1]).cpu().numpy()
+            )  # TODO: use action_tokens as cls_id
+            with torch.autocast(
+                device_type="cuda", dtype=self.amp_dtype, enabled=self.use_amp
+            ):
+                policy_out = self.policy(
+                    states=observations,
+                    actions=actions,
+                    rewards=rewards,
+                    returns_to_go=rewards_to_go,
+                    timesteps=timesteps.long(),
+                    attention_mask=attention_mask,
+                    return_dict=True,
+                    with_log_probs=self.stochastic_policy,
+                    deterministic=False,
+                    prompt=prompt,
+                    task_id=self.current_task_id_tensor,
+                    ddp_kwargs=self.ddp_kwargs,
+                )
+                # only use features for predict actions
+                features = policy_out.last_encoder_output[
+                    :, self.policy.tok_to_pred_pos["a"]
+                ].cpu()  # [batch_size, tokens_for_pred_a, context_len, hidden_size]
+            batch_size = features.shape[0]
+            context_len = features.shape[2]
+            features = features.permute(0, 2, 1, 3).reshape(
+                batch_size * context_len, -1
+            )  # [batch_size * context_len, tokens_for_pred_a * hidden_size]
+            for i in range(actions_val.shape[0]):
+                if tuple(actions_val[i]) in self.features_per_cls:
+                    self.features_per_cls[tuple(actions_val[i])] = torch.cat(
+                        tuple(self.features_per_cls[tuple(actions_val[i])], features[i])
+                    )  # input features: [tokens_for_pred_a * hidden_size]
+                else:
+                    self.features_per_cls[tuple(actions_val[i])] = features[i]
+
+        for cls_id, features_per_cls in enumerate(self.features_per_cls):
+            # TODO: use multi-centroid, do we have gpu support KMeans
+            from sklearn.cluster import KMeans
+
+            n_clusters = 64  # n_centroids
+            features_per_cls = (
+                features_per_cls.reshape(features_per_cls.shape[0], -1).cpu().numpy()
+            )
+            kmeans = KMeans(n_clusters=n_clusters)
+            kmeans.fit(features_per_cls)
+            cluster_lables = kmeans.labels_
+            cluster_means = []
+            cluster_vars = []
+            for i in range(n_clusters):
+                cluster_data = features_per_cls[cluster_lables == i]
+                cluster_mean = torch.tensor(
+                    np.mean(cluster_data, axis=0), dtype=torch.float64
+                ).to("cuda")
+                cluster_var = torch.tensor(
+                    np.var(cluster_data, axis=0), dtype=torch.float64
+                ).to("cuda")
+                cluster_means.append(cluster_mean)
+                cluster_vars.append(cluster_var)
+
+            self.cls_mean[cls_id] = cluster_means
+            self.cls_cov[cls_id] = cluster_vars
 
     # Compute distribution of representation
     @torch.no_grad()
@@ -1897,6 +1988,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     ddp_kwargs=self.ddp_kwargs,
                 )
                 # only use state feature
+
                 features = (
                     policy_out.last_encoder_output[:, self.policy.tok_to_pos["s"]]
                     .squeeze()
@@ -1922,6 +2014,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         features_per_tsk = (
             features_per_tsk.reshape(features_per_tsk.shape[0], -1).cpu().numpy()
         )
+
         kmeans = KMeans(n_clusters=n_clusters)
         kmeans.fit(features_per_tsk)
         cluster_lables = kmeans.labels_
@@ -1962,7 +2055,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         if self.train_task_inference_only:
             crct_num = self.current_task_id + 1
         else:
-            crct_num = 64  # TODO: read from config
+            crct_num = len(self.features_per_cls)  # TODO: read from config
         for epoch in range(run_epochs):
             # Sample pseduo sample from representation
             sampled_data = []
@@ -1990,7 +2083,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                             [i] * num_sampled_per_tsk
                         )  # TODO: check shape
                 else:
-                    for c_id in range(64):
+                    for c_id, features in enumerate(self.features_per_cls):
                         for cluster in range(len(self.cls_mean[c_id])):
                             mean = self.cls_mean[c_id][cluster]
                             var = self.cls_cov[c_id][cluster]
@@ -2006,10 +2099,12 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                             sampled_data_single = m.sample(
                                 sample_shape=(num_sampled_per_cls,)
                             )
-                            sampled_data.append(sampled_data_single)
-                            sampled_label.extend(
+                            sampled_data.append(
+                                sampled_data_single
+                            )  # should be [batch_size, tokens_for_pred_a x hidden_size]
+                            sampled_label.extend(  # cid is [action_dim]
                                 [c_id] * num_sampled_per_cls
-                            )  # TODO: check shape
+                            )  # TODO: check shape: should be [batch_size, tokens_for_pred_a x action_dim]
 
             sampled_data = torch.cat(sampled_data, dim=0).float().to("cuda")
             sampled_label = torch.tensor(sampled_label).long().to("cuda")
@@ -2046,14 +2141,14 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         _iter * num_sampled_per_cls : (_iter + 1) * num_sampled_per_cls
                     ]
                     logits = self.policy.get_predictions(
-                        inp,  # whole features
+                        inp,  # features for pred_a, context_len == 1
                         with_log_probs=False,
                         deterministic=True,
                         task_id=None,
                         infer_action_only=True,
-                    )
-                    # TODO: should we exclude tii_preds?
-                    loss = criterion(logits, tgt)
+                    )  # [batch_size, tokens_for_pred_a, action_bin]
+                    # TODO: tokenize_actions(tgt)
+                    loss = criterion(logits.reshape(logits.shape[0], -1), tgt)
 
                 acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
 
