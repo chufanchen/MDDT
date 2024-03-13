@@ -1914,9 +1914,17 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             )  # [batch_size * context_len, tokens_for_pred_a * hidden_size]
             for i in range(actions_val.shape[0]):
                 if tuple(actions_val[i]) in self.features_per_cls:
-                    self.features_per_cls[tuple(actions_val[i])] = torch.cat(
-                        tuple(self.features_per_cls[tuple(actions_val[i])], features[i])
-                    )  # input features: [tokens_for_pred_a * hidden_size]
+                    if self.features_per_cls[tuple(actions_val[i])].dim() == 1:
+                        self.features_per_cls[tuple(actions_val[i])] = torch.stack(
+                            (self.features_per_cls[tuple(actions_val[i])], features[i])
+                        )  # input features: [tokens_for_pred_a * hidden_size]
+                    else:
+                        self.features_per_cls[tuple(actions_val[i])] = torch.cat(
+                            (
+                                self.features_per_cls[tuple(actions_val[i])],
+                                features[i].unsqueeze(0),
+                            )
+                        )
                 else:
                     self.features_per_cls[tuple(actions_val[i])] = features[i]
 
