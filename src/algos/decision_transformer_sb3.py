@@ -1244,7 +1244,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     rewards_to_go=prompt.rewards_to_go / self.reward_scale,
                     rewards=prompt.rewards / self.reward_scale,
                 )
-        np.all(task_ids.cpu().numpy() == self.current_task_id)
+        # np.all(task_ids.cpu().numpy() == self.current_task_id)
         return (
             observations,
             actions,
@@ -1517,9 +1517,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     self.steps_per_task is not None
                     and self.num_timesteps % self.steps_per_task == 0
                 ):
-                    # TODO: train TAP
                     # Load current task's trajectories
-                    # TODO: check can we init buffer mutiple times?
+                    # TODO: check can we init buffer mutiple times? current method is not efficient
                     if self.train_task_inference_only or self.train_wtp_and_tap:
                         if self.data_paths["names"][self.current_task_id] is not None:
                             single_task_data_path = dict()
@@ -1539,14 +1538,14 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                             )
 
                         print("Before tap: ")
-                        test_stats_pre_ca = self.evaluate_till_now()
+                        # test_stats_pre_ca = self.evaluate_till_now()
                         if self.train_task_inference_only:
                             self.compute_mean_taskwise()
                         elif self.train_wtp_and_tap:
                             self.compute_mean_classwise()
                         self.train_task_adaptive_prediction()
                         print("After tap: ")
-                        test_stats = self.evaluate_till_now()
+                        # test_stats = self.evaluate_till_now()
                     self._on_task_switch()
             else:
                 rollout = self.collect_rollouts(
@@ -1928,14 +1927,28 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 else:
                     self.features_per_cls[tuple(actions_val[i])] = features[i]
 
-        for cls_id, features_per_cls in enumerate(self.features_per_cls):
-            # TODO: use multi-centroid, do we have gpu support KMeans
+        n_clusters = 10
+        for cls_id, features_per_cls in self.features_per_cls.items():
+            # TODO: use multi-centroid, do we have gpu support KMeans?
             from sklearn.cluster import KMeans
 
-            n_clusters = 64  # n_centroids
-            features_per_cls = (
-                features_per_cls.reshape(features_per_cls.shape[0], -1).cpu().numpy()
-            )
+            # TODO: a alternative way is to wait for enough number of features
+            # if features_per_cls.dim() == 1:
+            #     n_clusters = 1
+            #     features_per_cls = features_per_cls.unsqueeze(0).cpu().numpy()
+            # else:
+            #     assert features_per_cls.dim() == 2
+            #     n_clusters = min(features_per_cls.shape[0], 10)
+            #     features_per_cls = features_per_cls.cpu().numpy()
+            if features_per_cls.dim() == 2:
+                num_samples = features_per_cls.shape[0]
+                if num_samples >= n_clusters:
+                    features_per_cls = features_per_cls.cpu().numpy()
+                else:
+                    continue
+            else:
+                continue
+
             kmeans = KMeans(n_clusters=n_clusters)
             kmeans.fit(features_per_cls)
             cluster_lables = kmeans.labels_
@@ -2069,8 +2082,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             sampled_data = []
             sampled_label = []
             num_sampled_per_cls = num_sampled_per_tsk = self.batch_size
-            for i in range(self.current_task_id + 1):
-                if self.train_task_inference_only:
+            if self.train_task_inference_only:
+                for i in range(self.current_task_id + 1):
                     for cluster in range(len(self.tsk_mean[i])):
                         mean = self.tsk_mean[i][cluster]
                         var = self.tsk_cov[i][cluster]
@@ -2090,8 +2103,10 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         sampled_label.extend(
                             [i] * num_sampled_per_tsk
                         )  # TODO: check shape
-                else:
-                    for c_id, features in enumerate(self.features_per_cls):
+                sampled_label = torch.tensor(sampled_label).long().to("cuda")
+            else:
+                for c_id, features in self.features_per_cls.items():
+                    if c_id in self.cls_mean:
                         for cluster in range(len(self.cls_mean[c_id])):
                             mean = self.cls_mean[c_id][cluster]
                             var = self.cls_cov[c_id][cluster]
@@ -2110,12 +2125,14 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                             sampled_data.append(
                                 sampled_data_single
                             )  # should be [batch_size, tokens_for_pred_a x hidden_size]
-                            sampled_label.extend(  # cid is [action_dim]
-                                [c_id] * num_sampled_per_cls
-                            )  # TODO: check shape: should be [batch_size, tokens_for_pred_a x action_dim]
+                            sampled_label.append(  # cid is [action_dim]
+                                torch.FloatTensor(list(c_id))
+                                .unsqueeze(0)
+                                .repeat(num_sampled_per_tsk, 1)
+                            )  # TODO: check shape: should be [batch_size, tokens_for_pred_a]
+                sampled_label = torch.cat(sampled_label, dim=0).float().to("cuda")
 
             sampled_data = torch.cat(sampled_data, dim=0).float().to("cuda")
-            sampled_label = torch.tensor(sampled_label).long().to("cuda")
 
             inputs = sampled_data  # [num_sampled_per_tsk * cluster, hidden_size]
             targets = sampled_label
@@ -2123,7 +2140,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             shuffled_indexes = torch.randperm(inputs.size(0))
             inputs = inputs[shuffled_indexes]
             targets = targets[shuffled_indexes]
-
+            if self.train_wtp_and_tap:
+                crct_num = inputs.shape[0] // (num_sampled_per_cls * 10)
             for _iter in range(crct_num):
                 if self.train_task_inference_only:
                     inp = inputs[
@@ -2141,6 +2159,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     )
                     logits = tii_preds
                     loss = criterion(tii_preds, tgt)
+                    # acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
                 else:
                     inp = inputs[
                         _iter * num_sampled_per_cls : (_iter + 1) * num_sampled_per_cls
@@ -2148,7 +2167,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     tgt = targets[
                         _iter * num_sampled_per_cls : (_iter + 1) * num_sampled_per_cls
                     ]
-                    logits = self.policy.get_predictions(
+                    action_preds = self.policy.get_predictions(
                         inp,  # features for pred_a, context_len == 1
                         with_log_probs=False,
                         deterministic=True,
@@ -2156,9 +2175,8 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         infer_action_only=True,
                     )  # [batch_size, tokens_for_pred_a, action_bin]
                     # TODO: tokenize_actions(tgt)
-                    loss = criterion(logits.reshape(logits.shape[0], -1), tgt)
-
-                acc1, acc5 = accuracy(logits, tgt, topk=(1, 5))
+                    loss = criterion(action_preds.squeeze(), tgt)
+                    # acc1, acc5 = accuracy(action_preds, tgt, topk=(1, 5))
 
                 if not math.isfinite(loss.item()):
                     print("Loss is {}, stopping training".format(loss.item()))

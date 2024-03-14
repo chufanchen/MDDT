@@ -349,7 +349,11 @@ class UDT(DecisionTransformerSb3):
 
         if self.train_wtp_and_tap:
             loss += self.orth_loss(
-                policy_output.action_logits,  # [batch_size, context_len, tokens_for_pred_a, action_bin]
+                policy_output.last_encoder_output[
+                    :, self.policy.tok_to_pred_pos["a"]
+                ].permute(
+                    0, 2, 1, 3
+                ),  # [batch_size, context_len, tokens_for_pred_a, hidden_size]
                 action_targets,
             )
 
