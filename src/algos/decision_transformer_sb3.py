@@ -2174,7 +2174,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         task_id=None,
                         infer_action_only=True,
                     )  # [batch_size, tokens_for_pred_a, action_bin]
-                    # TODO: tokenize_actions(tgt)
+                    # TODO: why loss 0?
                     loss = criterion(action_preds.squeeze(), tgt)
                     # acc1, acc5 = accuracy(action_preds, tgt, topk=(1, 5))
 
