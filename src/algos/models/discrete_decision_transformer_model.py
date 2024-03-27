@@ -362,7 +362,7 @@ class DiscreteDTModel(OnlineDecisionTransformerModel):
             ) = self.action_log_prob_logits(
                 x.reshape(x.shape[0], -1, self.hidden_size)
             )  # input: [batch_size, tokens_for_pred_a, hidden_size]
-            return action_preds  # TODO: check which should be used
+            return action_logits  # TODO: check which should be used
         # x: [batch_size, tokens, context_len, hidden_dim]
         return_preds = self.predict_return(
             x[:, self.tok_to_pred_pos["rtg"]]

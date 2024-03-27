@@ -2167,15 +2167,25 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     tgt = targets[
                         _iter * num_sampled_per_cls : (_iter + 1) * num_sampled_per_cls
                     ]
-                    action_preds = self.policy.get_predictions(
+                    action_logits = self.policy.get_predictions(
                         inp,  # features for pred_a, context_len == 1
                         with_log_probs=False,
                         deterministic=True,
                         task_id=None,
                         infer_action_only=True,
                     )  # [batch_size, tokens_for_pred_a, action_bin]
-                    # TODO: why loss 0?
-                    loss = criterion(action_preds.squeeze(), tgt)
+                    # TODO: why loss 0? compute_main_policy_loss, with attention mask and action mask
+                    act_dim, logits_latent_dim = (
+                        action_logits.shape[1],
+                        action_logits.shape[2],
+                    )
+                    action_target_tokens = self.policy.tokenize_actions(tgt)
+                    assert action_logits.dim() == 3
+                    action_target_tokens, action_logits = (
+                        action_target_tokens.reshape(-1),
+                        action_logits.reshape(-1, logits_latent_dim),
+                    )
+                    loss = criterion(action_logits, action_target_tokens)
                     # acc1, acc5 = accuracy(action_preds, tgt, topk=(1, 5))
 
                 if not math.isfinite(loss.item()):
@@ -2203,6 +2213,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             sample_mean = torch.stack(sample_mean, dim=0).to("cuda", non_blocking=True)
             M = torch.cat([sample_mean, features], dim=0)
             sim = torch.matmul(M, M.t()) / 0.8
+            # TODO: torch.range deprecated, use arange
             loss = torch.nn.functional.cross_entropy(
                 sim, torch.range(0, sim.shape[0] - 1).long().to("cuda")
             )
@@ -2210,6 +2221,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             return self.reg * loss
         else:
             sim = torch.matmul(features, features.t()) / 0.8
+            # TODO: torch.range deprecated, use arange
             loss = torch.nn.functional.cross_entropy(
                 sim, torch.range(0, sim.shape[0] - 1).long().to("cuda")
             )
