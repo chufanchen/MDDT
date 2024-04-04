@@ -206,7 +206,7 @@ python main.py -m experiment_name=cw10_lora seed=42,43,44 env_params=mt50_pretra
 
 ### Continual fine-tuning
 
-To fine-tune the pre-trained model using L2M on all CW10 tasks in a sequential manner with 3 seeds, run:
+To fine-tune the pre-trained model using L2M on all CW10 tasks in a sequential manner with 3 seeds, run: (not supported, use original code)
 
 ```bash
 python main.py -m experiment_name=cw10_cl_l2m seed=42 env_params=multi_domain_ft env_params.eval_env_names=cw10_v2 run_params=finetune_coff eval_params=finetune_md_cl agent_params=cdt_mpdt_disc +agent_params.steps_per_task=100000 agent_params/model_kwargs=mdmpdt_mtdmc agent_params/data_paths=cw10_v2_cwnet_2M +agent_params/replay_buffer_kwargs=mtdmc_ft +agent_params.replay_buffer_kwargs.kind=continual agent_params/model_kwargs/prompt_kwargs=l2m_lora
@@ -219,7 +219,7 @@ python main.py -m experiment_name=cw10_cl_tii seed=42 env_params=multi_domain_ft
 ```
 
 ```bash
-python main.py -m experiment_name=cw10_cl_hide_lora seed=42 env_params=multi_domain_ft env_params.eval_env_names=cw10_v2 run_params=finetune_coff eval_params=finetune_md_cl agent_params=cdt_mpdt_disc +agent_params.steps_per_task=100000 agent_params/model_kwargs=mdmpdt_mtdmc agent_params/data_paths=cw10_v2_cwnet_2M +agent_params/replay_buffer_kwargs=mtdmc_ft +agent_params.replay_buffer_kwargs.kind=continual agent_params/model_kwargs/prompt_kwargs=hide_lora
+python main.py -m experiment_name=cw10_cl_hide_lora seed=42 env_params=multi_domain_ft env_params.eval_env_names=cw10_v2 run_params=finetune_coff eval_params=finetune_md_cl agent_params=cdt_mpdt_disc +agent_params.steps_per_task=100 +agent_params.eval_tii_steps=1000 agent_params/model_kwargs=mdmpdt_mtdmc agent_params/data_paths=cw10_v2_cwnet_2M +agent_params/replay_buffer_kwargs=mtdmc_ft +agent_params.replay_buffer_kwargs.kind=continual agent_params/model_kwargs/prompt_kwargs=hide_lora
 ```
 
 ### Multi-GPU training

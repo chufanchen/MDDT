@@ -1484,7 +1484,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.state_std = torch.from_numpy(state_std).to(self.device).float()
 
         self.policy.eval()
-        # callback.on_training_start(locals(), globals())
+        callback.on_training_start(locals(), globals())
         self.policy.train()
         self._record_param_count()
         self._dump_logs()
@@ -1513,13 +1513,14 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 rollout = RolloutReturn(0, 0, True)
                 if log_interval is not None and self.num_timesteps % log_interval == 0:
                     self._dump_logs()
+                # task switch
                 if (
                     self.steps_per_task is not None
                     and self.num_timesteps % self.steps_per_task == 0
                 ):
-                    # Load current task's trajectories
-                    # TODO: check can we init buffer mutiple times? current method is not efficient
+                    # Load current task's trajectories and train TAP
                     if self.train_task_inference_only or self.train_wtp_and_tap:
+                        # TODO: check can we init buffer mutiple times? current method is not efficient
                         if self.data_paths["names"][self.current_task_id] is not None:
                             single_task_data_path = dict()
                             single_task_data_path["names"] = [
@@ -1537,15 +1538,15 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                                 single_task_data_path
                             )
 
-                        print("Before tap: ")
-                        # test_stats_pre_ca = self.evaluate_till_now()
+                        print("Before TAP: ")
+                        test_stats_pre_ca = self.evaluate_till_now()
                         if self.train_task_inference_only:
                             self.compute_mean_taskwise()
                         elif self.train_wtp_and_tap:
                             self.compute_mean_classwise()
                         self.train_task_adaptive_prediction()
-                        print("After tap: ")
-                        # test_stats = self.evaluate_till_now()
+                        print("After TAP: ")
+                        test_stats = self.evaluate_till_now()
                     self._on_task_switch()
             else:
                 rollout = self.collect_rollouts(

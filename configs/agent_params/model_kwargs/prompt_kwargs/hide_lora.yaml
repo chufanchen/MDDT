@@ -1,5 +1,5 @@
 kind: hide_lora
-pool_size: 30
+pool_size: 10
 embed_key: mean
 prob: 1.0
 init_keys: uniform

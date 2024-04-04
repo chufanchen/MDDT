@@ -1,8 +1,10 @@
 import os
+import traceback
 import hydra
 import wandb
 import omegaconf
 import numpy as np
+import torch
 from pathlib import Path
 from stable_baselines3 import SAC, PPO, TD3, DQN
 from stable_baselines3.common.noise import (
@@ -95,7 +97,7 @@ def make_agent(config, env, logdir):
         model_kwargs = agent_params_dict.pop("model_kwargs", {})
         if max_act_dim is not None:
             model_kwargs["max_act_dim"] = max_act_dim
-        train_task_inference_only = agent_params_dict.pop(
+        train_task_inference_only = agent_params_dict.get(
             "train_task_inference_only", False
         )
         model_kwargs["train_task_inference_only"] = train_task_inference_only
@@ -238,16 +240,9 @@ def main(config):
     res, score = None, None
     try:
         res = agent.learn(**config.run_params, eval_env=eval_env, callback=callbacks)
-        agent.save(
-            config.get("MODELS_DIR", None)
-            + "/"
-            + config.get("experiment_name", None)
-            + "_"
-            + str(config.get("seed", None))
-            + ".zip"
-        )
+        torch.save(agent.policy, "tii.pt")
     except Exception as e:
-        print(e)
+        print(traceback.format_exc())
     finally:
         print("Finalizing run...")
         if config.use_wandb:

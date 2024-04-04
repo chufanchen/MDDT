@@ -40,4 +40,4 @@ wandb_params:
 wandb_callback_params:
   gradient_save_freq: 250
   verbose: 1
-  model_save_path:
+  model_save_path: /home/lab304/mddt/models
