@@ -240,7 +240,6 @@ def main(config):
     res, score = None, None
     try:
         res = agent.learn(**config.run_params, eval_env=eval_env, callback=callbacks)
-        torch.save(agent.policy, "tii.pt")
     except Exception as e:
         print(traceback.format_exc())
     finally:
