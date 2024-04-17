@@ -135,9 +135,9 @@ class HiDeLoRAPool(Prompt):
     # Init e_t with e_{t-1}
     def set_task_id(self, task_id):
         super().set_task_id(task_id)
-        task_id_val = task_id.cpu().item()
-        if task_id_val > 0:
-            self.lora_a[task_id].grad.zero_()
-            self.lora_b[task_id].grad.zero_()
-            self.lora_a[task_id] = self.lora_a[task_id - 1]
-            self.lora_b[task_id] = self.lora_b[task_id - 1]
+        # task_id_val = task_id.cpu().item()
+        if task_id > 0:
+            # self.lora_a[task_id].grad.zero_()
+            # self.lora_b[task_id].grad.zero_()
+            self.lora_a.data[task_id] = self.lora_a.data[task_id - 1]
+            self.lora_b.data[task_id] = self.lora_b.data[task_id - 1]

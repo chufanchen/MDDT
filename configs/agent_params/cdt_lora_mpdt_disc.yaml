@@ -10,7 +10,7 @@ eval_context_len: 5
 ent_coef: 0.0
 offline_steps: ${run_params.total_timesteps}
 buffer_max_len_type: "transition"
-buffer_size: 2000000 
+buffer_size: 20000000 
 buffer_weight_by: len 
 target_return_type: predefined
 warmup_steps: 0

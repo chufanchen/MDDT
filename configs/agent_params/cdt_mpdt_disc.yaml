@@ -24,7 +24,7 @@ load_path:
   file_name: dt_mediumplus_64.zip
 frozen: True
 freeze_kwargs:
-  exclude_action_head: True
+  exclude_tii_head: True
 defaults:
   - huggingface: dt_mediumplus_64
   - data_paths: cw10_v2_cwnet_2M

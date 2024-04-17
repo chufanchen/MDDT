@@ -1519,34 +1519,34 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     and self.num_timesteps % self.steps_per_task == 0
                 ):
                     # Load current task's trajectories and train TAP
-                    if self.train_task_inference_only or self.train_wtp_and_tap:
-                        # TODO: check can we init buffer mutiple times? current method is not efficient
-                        if self.data_paths["names"][self.current_task_id] is not None:
-                            single_task_data_path = dict()
-                            single_task_data_path["names"] = [
-                                self.data_paths["names"][self.current_task_id]
-                            ]
-                            single_task_data_path["base"] = self.data_paths["base"]
-                            del self.temp_replay_buffer
-                            self.temp_replay_buffer = self.temp_replay_buffer_class(
-                                self.buffer_size // self.num_tasks,
-                                self.observation_space,
-                                self.action_space,
-                                **self.replay_buffer_kwargs,
-                            )
-                            self.temp_replay_buffer.init_buffer_from_dataset(
-                                single_task_data_path
-                            )
+                    # if self.train_task_inference_only or self.train_wtp_and_tap:
+                    #     # TODO: check can we init buffer mutiple times? current method is not efficient
+                    #     if self.data_paths["names"][self.current_task_id] is not None:
+                    #         single_task_data_path = dict()
+                    #         single_task_data_path["names"] = [
+                    #             self.data_paths["names"][self.current_task_id]
+                    #         ]
+                    #         single_task_data_path["base"] = self.data_paths["base"]
+                    #         del self.temp_replay_buffer
+                    #         self.temp_replay_buffer = self.temp_replay_buffer_class(
+                    #             self.buffer_size // self.num_tasks,
+                    #             self.observation_space,
+                    #             self.action_space,
+                    #             **self.replay_buffer_kwargs,
+                    #         )
+                    #         self.temp_replay_buffer.init_buffer_from_dataset(
+                    #             single_task_data_path
+                    #         )
 
-                        print("Before TAP: ")
-                        test_stats_pre_ca = self.evaluate_till_now()
-                        if self.train_task_inference_only:
-                            self.compute_mean_taskwise()
-                        elif self.train_wtp_and_tap:
-                            self.compute_mean_classwise()
-                        self.train_task_adaptive_prediction()
-                        print("After TAP: ")
-                        test_stats = self.evaluate_till_now()
+                    #     print("Before TAP: ")
+                    #     test_stats_pre_ca = self.evaluate_till_now()
+                    #     if self.train_task_inference_only:
+                    #         self.compute_mean_taskwise()
+                    #     elif self.train_wtp_and_tap:
+                    #         self.compute_mean_classwise()
+                    #     self.train_task_adaptive_prediction()
+                    #     print("After TAP: ")
+                    #     test_stats = self.evaluate_till_now()
                     self._on_task_switch()
             else:
                 rollout = self.collect_rollouts(
@@ -2111,7 +2111,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                         for cluster in range(len(self.cls_mean[c_id])):
                             mean = self.cls_mean[c_id][cluster]
                             var = self.cls_cov[c_id][cluster]
-                            if var.mean() == 0:
+                            if var.mean() or (torch.sum(var.isnan() is True) != 0) == 0:
                                 continue
                             m = torch.distributions.multivariate_normal.MultivariateNormal(
                                 mean.float(),
