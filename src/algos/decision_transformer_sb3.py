@@ -144,6 +144,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         train_task_inference_only=None,
         train_wtp_and_tap=None,
         eval_tii_steps=None,
+        head_scale=1.0,
     ):
         super().__init__(
             policy,
@@ -251,7 +252,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         self.target_return_dict = collections.defaultdict(lambda: -float("inf"))
         # used to persist context during rollouts (necessary if performing updates during epoch)
         self.rollout_buffer = {}
-
+        self.head_scale = head_scale
         self.train_task_inference_only = train_task_inference_only
         self.train_wtp_and_tap = train_wtp_and_tap
         self.eval_tii_steps = eval_tii_steps
@@ -365,11 +366,15 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.policy = torch.compile(self.policy)
         if self.load_path is not None:
             self.load_model_weights(self.load_path, freeze=self.frozen)
+        # params[0]: decay
+        # params[1]: no decay
         params = (
             self.policy.get_optim_groups(weight_decay=self.weight_decay)
             if self.weight_decay > 0
             else self.policy.parameters()
         )
+        if self.head_scale != 1.0:
+            params[0]['lr'] = self.head_scale * self.learning_rate # head(in params[0]) use larger learning rate
         self.optimizer = make_optimizer(
             self.optimizer_kind, params, lr=self.learning_rate
         )
