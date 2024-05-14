@@ -1489,6 +1489,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.state_std = torch.from_numpy(state_std).to(self.device).float()
 
         self.policy.eval()
+        # TODO: enable this after debugging
         callback.on_training_start(locals(), globals())
         self.policy.train()
         self._record_param_count()

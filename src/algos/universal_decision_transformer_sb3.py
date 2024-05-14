@@ -8,6 +8,7 @@ from stable_baselines3.common.policies import ContinuousCritic
 from .agent_utils import make_loss_fn
 from .decision_transformer_sb3 import DecisionTransformerSb3
 from .models import CustomContinuousCritic, DummyUDTModel, MultiHeadContinuousCritic
+from .prompt import HiDeLoRAPool
 from ..optimizers import make_optimizer
 
 
@@ -343,6 +344,7 @@ class UDT(DecisionTransformerSb3):
         if (
             hasattr(policy_output, "prompt_infos")
             and policy_output.prompt_infos is not None
+            and not isinstance(self.policy.prompt, HiDeLoRAPool)
         ):
             loss_dict["loss_actions"] = loss.item()
             loss = self.compute_prompt_loss(loss, policy_output)
