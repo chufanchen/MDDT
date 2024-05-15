@@ -1337,7 +1337,10 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                 # print({k: v for k, v in has_changed.items() if v})
         if self.schedulers is not None:
             self.schedulers.step()
-            self.logger.record("train/learning_rate", self.schedulers.get_last_lr()[0])
+            for i, param_group in enumerate(self.schedulers.optimizer.param_groups):
+                lr = param_group['lr']
+                print(f'Epoch {epoch + 1}, Param group {i + 1}, Learning rate: {lr}')
+                self.logger.record("train/learning_rate_"+str(i), lr)
         return loss_dict
 
     def compute_policy_loss(
@@ -1489,8 +1492,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             self.state_std = torch.from_numpy(state_std).to(self.device).float()
 
         self.policy.eval()
-        # TODO: enable this after debugging
-        callback.on_training_start(locals(), globals())
+        # callback.on_training_start(locals(), globals())
         self.policy.train()
         self._record_param_count()
         self._dump_logs()
@@ -1872,7 +1874,9 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
         features_per_cls_val = []
         self.policy.eval()
         # compute current task's representation distribution
-        for step in range(self.steps_per_task // 10):  # TODO: read from variable
+        full_flag = False
+        while not full_flag:  # TODO: read from variable
+            
             # for step in range(1000):  # 100000 not work on 126
             (
                 observations,
@@ -1909,7 +1913,7 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
                     task_id=self.current_task_id_tensor,
                     ddp_kwargs=self.ddp_kwargs,
                 )
-                # only use features for predict actions
+                # only use features which are used to predict actions(namely state features)
                 features = policy_out.last_encoder_output[
                     :, self.policy.tok_to_pred_pos["a"]
                 ].cpu()  # [batch_size, tokens_for_pred_a, context_len, hidden_size]
@@ -1918,35 +1922,30 @@ class DecisionTransformerSb3(OffPolicyAlgorithm):
             features = features.permute(0, 2, 1, 3).reshape(
                 batch_size * context_len, -1
             )  # [batch_size * context_len, tokens_for_pred_a * hidden_size]
+            full_flag = True
             for i in range(actions_val.shape[0]):
                 if tuple(actions_val[i]) in self.features_per_cls:
-                    if self.features_per_cls[tuple(actions_val[i])].dim() == 1:
-                        self.features_per_cls[tuple(actions_val[i])] = torch.stack(
-                            (self.features_per_cls[tuple(actions_val[i])], features[i])
-                        )  # input features: [tokens_for_pred_a * hidden_size]
-                    else:
-                        self.features_per_cls[tuple(actions_val[i])] = torch.cat(
-                            (
-                                self.features_per_cls[tuple(actions_val[i])],
-                                features[i].unsqueeze(0),
+                    if len(self.features_per_cls[tuple(actions_val[i])]) < self.batch_size:
+                        full_flag = False
+                        if self.features_per_cls[tuple(actions_val[i])].dim() == 1:
+                            self.features_per_cls[tuple(actions_val[i])] = torch.stack(
+                                (self.features_per_cls[tuple(actions_val[i])], features[i])
+                            )  # input features: [tokens_for_pred_a * hidden_size]
+                        else:
+                            self.features_per_cls[tuple(actions_val[i])] = torch.cat(
+                                (
+                                    self.features_per_cls[tuple(actions_val[i])],
+                                    features[i].unsqueeze(0),
+                                )
                             )
-                        )
                 else:
+                    full_flag = False
                     self.features_per_cls[tuple(actions_val[i])] = features[i]
 
         n_clusters = 10
         for cls_id, features_per_cls in self.features_per_cls.items():
-            # TODO: use multi-centroid, do we have gpu support KMeans?
-            from sklearn.cluster import KMeans
-
-            # TODO: a alternative way is to wait for enough number of features
-            # if features_per_cls.dim() == 1:
-            #     n_clusters = 1
-            #     features_per_cls = features_per_cls.unsqueeze(0).cpu().numpy()
-            # else:
-            #     assert features_per_cls.dim() == 2
-            #     n_clusters = min(features_per_cls.shape[0], 10)
-            #     features_per_cls = features_per_cls.cpu().numpy()
+            from torch_kmeans import KMeans
+            
             if features_per_cls.dim() == 2:
                 num_samples = features_per_cls.shape[0]
                 if num_samples >= n_clusters:

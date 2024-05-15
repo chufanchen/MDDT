@@ -7,3 +7,4 @@ agg_token: "s"
 count_penalty: True
 mod_ff: True
 rank: 8
+alpha: 0.0

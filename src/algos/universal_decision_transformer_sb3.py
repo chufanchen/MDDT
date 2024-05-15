@@ -646,7 +646,7 @@ class UDT(DecisionTransformerSb3):
                         action_mask[:, -1],
                     )
 
-                # shape: [batch_size x context_len x action_dim] (before masking)
+                # shape: [batch_size x context_len, action_dim] (before masking)
                 action_targets = action_targets.reshape(-1, act_dim)[
                     attention_mask.reshape(-1) > 0
                 ]

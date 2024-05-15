@@ -24,6 +24,7 @@ class HiDeLoRAPool(Prompt):
         log_mod_stats=False,
         eval_mode=False,
         continual_mode=False,
+        alpha=1.0,
         **kwargs,
     ):
         super().__init__(dropout_rate=dropout_rate, **kwargs)
@@ -56,6 +57,7 @@ class HiDeLoRAPool(Prompt):
         self.num_tasks = num_tasks
         self.eval_mode = eval_mode
         self.continual_mode = continual_mode
+        self.alpha = alpha
         self._setup_prompt()
 
     @property
@@ -132,6 +134,11 @@ class HiDeLoRAPool(Prompt):
     def add_dropout(self, batched_prompt):
         return batched_prompt
 
+    def interpolate_weights(self, task_id, fisher=False):
+        if not fisher:
+            self.lora_a.data[task_id] = (1 - self.alpha) * self.lora_a.data[task_id - 1].detach().clone() + self.alpha * self.lora_a.data[task_id - 2].detach().clone()
+            self.lora_b.data[task_id] = (1 - self.alpha) * self.lora_b.data[task_id - 1].detach().clone() + self.alpha * self.lora_b.data[task_id - 2].detach().clone()
+    
     # Init e_t with e_{t-1}
     def set_task_id(self, task_id):
         super().set_task_id(task_id)
@@ -139,5 +146,6 @@ class HiDeLoRAPool(Prompt):
         if task_id > 0:
             # self.lora_a[task_id].grad.zero_()
             # self.lora_b[task_id].grad.zero_()
-            self.lora_a.data[task_id] = self.lora_a.data[task_id - 1]
-            self.lora_b.data[task_id] = self.lora_b.data[task_id - 1]
+            # self.lora_a.data[task_id] = self.lora_a.data[task_id - 1]
+            # self.lora_b.data[task_id] = self.lora_b.data[task_id - 1]
+            self.interpolate_weights(task_id)
